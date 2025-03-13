@@ -37,7 +37,7 @@ jobs:
 			  run: |
 				echo "${{ env.AZURE_ACCESS_TOKEN }}"
 				
-			- name: Use Access Token in Workflow
+			- name: Use Access Token in Workfloww
 			  run: |
 				echo "Access Token: ${{ env.AZURE_ACCESS_TOKEN }}"
 				
