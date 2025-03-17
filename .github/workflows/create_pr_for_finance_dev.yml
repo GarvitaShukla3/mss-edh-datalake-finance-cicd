@@ -23,8 +23,7 @@ jobs:
 
        - name: Generate Random Title
          id: random _title
-         run: echo “::set-output name=title::Automated PR from ${{ github-ref_name }} to Dev Finance Environment $(shuf -i 1-100@ -n 1)"
-		 
+         run: echo “::set-output name=title::Automated PR from ${{ github-ref_name }} to Dev Finance Environment $(shuf -i 1-1000 -n 1)"
        - name: Open PR from ${{ github.ref_name }} to Dev Finance and add reviewers
 
        # if: github.event_name == ‘push’ && github.ref == ‘refs/heads/dev-gopal-finance’
