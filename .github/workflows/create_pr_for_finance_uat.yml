@@ -1,4 +1,5 @@
 name: Create PR from Dev-finance to QA Finance.
+
 on:
   push:
     branches:
@@ -7,7 +8,8 @@ on:
       - deploy/**
     paths-ignore:
       - .github/**
-      - deploy/dfg2/**.json  
+      - deploy/dfg2/**.json
+
 jobs:
     create_pr_and_add_reviewers:
      runs-on: ubuntu-latest
