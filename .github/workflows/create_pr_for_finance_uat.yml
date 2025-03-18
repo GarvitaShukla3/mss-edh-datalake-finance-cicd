@@ -1,4 +1,4 @@
-name: Create PR from Dev-finance to QA Finance.
+name: Create PR from Dev-finance to QA Finance
 
 on:
   push:
