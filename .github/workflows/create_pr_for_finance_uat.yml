@@ -12,13 +12,13 @@ jobs:
     create_pr_and_add_reviewers:
      runs-on: ubuntu-latest
      steps:
-       - name: Checkout code
-         uses: actions/checkout@v2
-       - name: Generate Random Title
-         id: random _title
-         run: echo “::set-output name=title::Automated PR from Dev to QA Finance Environment $(shuf -i 1-1000 -n 1)" 
-       - name: Open PR from Dev to QA Finance and add reviewers
-       # if: github.event_name == ‘push’ && github.ref == ‘refs/heads/mss-finance-edh-dev’
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Generate Random Title
+        id: random _title
+        run: echo “::set-output name=title::Automated PR from Dev to QA Finance Environment $(shuf -i 1-1000 -n 1)" 
+      - name: Open PR from Dev to QA Finance and add reviewers
+        if: github.event_name == ‘push’ && github.ref == ‘refs/heads/mss-finance-edh-dev’
         run: |
          response=$(curl -x POST \
          -H “Authorization: Bearer ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
