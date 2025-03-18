@@ -1,5 +1,4 @@
 name: Create PR from Dev-feature to Dev Finance Repo.
-
 on:
   push:
     branches:
@@ -10,45 +9,34 @@ on:
       - deploy/pbireport/**. pbix
     paths-ignore:
       - .github/*
-      - deploy/dfg2/**.json
-	  
-	  
+      - deploy/dfg2/**.json  
 jobs:
     create_pr_and_add_reviewers:
      runs-on: ubuntu-latest
-
      steps:
        - name: Checkout code
          uses: actions/checkout@v2
-
        - name: Generate Random Title
          id: random _title
          run: echo “::set-output name=title::Automated PR from ${{ github-ref_name }} to Dev Finance Environment $(shuf -i 1-1000 -n 1)"
        - name: Open PR from ${{ github.ref_name }} to Dev Finance and add reviewers
-
        # if: github.event_name == ‘push’ && github.ref == ‘refs/heads/dev-gopal-finance’
-
          run: |
-
-         response=$(curl -x POST \
-
-         -H “Authorization: Bearer ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
-
-         -H “Accept: application/vnd.github.v3+json” \
-
+          response=$(curl -x POST \
+          -H “Authorization: Bearer ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
+          -H “Accept: application/vnd.github.v3+json” \
           https: //api.github.com/nepos/${{ github.repository }}/pulls \
-		  -d '{
+          -d '{
              "title: "${{ steps.random_title.outputs.title }}",
-
              "body": "Automatically generated pull request from ${{ github.ref_name }} to bev Finance Environment",
              "head" : "${{ github.ref_name }}",
              "base" : mis -Finance-edh-dev"
-		  }')
+              }')
             echo “response”
             # Extract the PR number from the response
             pr_number=$(echo “$response” | jq -r ‘.number”)
             # Add reviewers to the PR
-			curl -X POST \
+            curl -X POST \
             -H “Authorization: Bearer ${{ secrets.PERSONAL ACCESS TOKEN }}” \
             -H “Accept: application/vnd.github.v3+json” \
             -d ‘{"reviewers”:["${{ vars.FIN_APPROVER_1 }}"]}" \
