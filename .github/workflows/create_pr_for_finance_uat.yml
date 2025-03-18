@@ -4,18 +4,20 @@ on:
   push:
     branches:
       - mss-finance-edh-dev
-    path:
-      - deploy/**
-    paths-ignore:
-      - .github/**
-      - deploy/dfg2/**.json
 
 jobs:
     create_pr_and_add_reviewers:
      runs-on: ubuntu-latest
+     
      steps:
       - name: Checkout code
         uses: actions/checkout@v2
+      - name: Run only on specific files
+        if: |
+          !contains(github.event.head_commit.message, '.github/') &&
+          !contains(github.event.head_commit.message, 'deploy/dfg2/') &&
+          contains(github.event.head_commit.message, 'deploy/')
+        run: echo "Triggered successfully!"
       - name: Generate Random Title
         id: random _title
         run: echo “::set-output name=title::Automated PR from Dev to QA Finance Environment $(shuf -i 1-1000 -n 1)" 
