@@ -1,12 +1,11 @@
 ---
 name: Deploy Jupyter Notebook to QA-Finance Workspaces after Merge
 on:
-  pull_request:
-    types:
-      - closed
-    path:
-      - deploy/notebook/**.ipynb
-    paths-ignore:
+ pull_request:
+  types: [closed]
+  path:
+   - deploy/notebook/**.ipynb
+  paths-ignore:
       - .github/workflows/**.yml
       - deploy/dfg2/**.json
       - deploy/pbireport/**.pbix
