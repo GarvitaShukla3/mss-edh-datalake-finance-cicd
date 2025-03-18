@@ -1,15 +1,11 @@
 ---
 name: Deploy Jupyter Notebook to QA-Finance Workspaces after Merge
 on:
- pull_request:
-  types: [closed]
-  path:
-   - deploy/notebook/**.ipynb
-  paths-ignore:
-      - .github/workflows/**.yml
-      - deploy/dfg2/**.json
-      - deploy/pbireport/**.pbix
-      - deploy/datapipeline/**.json
+  push:
+    branches:
+      - mss-finance-edh-dev
+    path:
+      - deploy/**
 jobs:
   deploy_to_uat_after_merge:
     if: github.event.pull_request.merged == true &&
