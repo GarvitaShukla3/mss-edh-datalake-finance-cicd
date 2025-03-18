@@ -5,11 +5,9 @@ on:
     branches:
       - mss-finance-edh-dev
     path:
-      - deploy/**
+      - deploy/notebook/**.ipynb
 jobs:
   deploy_to_uat_after_merge:
-    if: github.event.pull_request.merged == true &&
-      github.event.pull_request.base.ref == 'mss-finance-edh-qa'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
