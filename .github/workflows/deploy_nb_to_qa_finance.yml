@@ -1,9 +1,3 @@
-654d6099-5fef-4a37-90b2-c07d16f3f88a
-
-53c6f1fd-24c3-4ab6-b9f2-a283c3bb102c
-
-
-
 ---
 name: Deploy Jupyter Notebook to QA-Finance Workspaces after Merge
 on:
