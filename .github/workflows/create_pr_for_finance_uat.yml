@@ -3,7 +3,7 @@ on:
   push:
     branches:
       - mss-finance-edh-dev
-    path:
+    paths:
       - deploy/**
     paths-ignore:
       - .github/**
