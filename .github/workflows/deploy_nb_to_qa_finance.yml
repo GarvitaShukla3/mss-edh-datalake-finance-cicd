@@ -22,8 +22,7 @@ jobs:
           az login --service-principal -u "$AZURE_USERNAME" -p "$AZURE_PASSWORD" --tenant "$AZURE_TENANT_ID"
           ACCESS_TOKEN=$(az account get-access-token --resource 'https://api.fabric.microsoft.com' --query 'accessToken' -o tsv)
           echo "::add-mask::$ACCESS_TOKEN"
-          echo "::set-output name=AZURE_ACCESS_TOKEN::$ACCESS_TOKEN"
-		
+          echo "::set-output name=AZURE_ACCESS_TOKEN::$ACCESS_TOKEN"	
       - name: Print Access Token
         run: |
           echo "${{ env.AZURE_ACCESS_TOKEN }}"		
