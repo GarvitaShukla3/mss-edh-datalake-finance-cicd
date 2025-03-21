@@ -1,0 +1,41 @@
+- name: Get changed files
+  id: changed-files
+  uses: tj-actions/changed-files@v33
+
+- name: Make API Call
+  run: >
+    for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+      if [ -f $file ]; then  # Check if the item is a file
+        stackfile=$(echo $file | cut -f3 -d'/')
+        echo $stackfile
+        parameter_value=$(cat deploy/notebook/$stackfile)
+        echo "converting the python code"
+        sed 's/53c6f1fd-24c3-4ab6-b9f2-a283c3bb102c/958077ec-bae1-4bda-b9a2-2116158d5879/g' deploy/notebook/$stackfile > deploy/notebook_base64_tmp.txt
+        sed 's/654d6099-5fef-4a37-90b2-c07d16f3f88a/0fde94f2-391e-42c0-bc8c-f29f17cac5f6/g' deploy/notebook_base64_tmp.txt > deploy/notebook_base64_tmp_1.txt
+        python -m base64 -e deploy/notebook_base64_tmp.txt > deploy/notebook_base64_tmp1.txt
+        echo "print of deploy/filename"
+        cat deploy/notebook_base64_tmp1.txt
+        echo "print of filename"
+        python -m base64 -e deploy/notebook/$stackfile > notebook_base64.txt
+        payload=$(cat deploy/notebook_base64_tmp1.txt)
+        echo "payload"
+        echo $payload
+        #new##########
+        #Pythonfile would be like below
+        nbfile=$(echo $stackfile | cut -f1 -d'.')
+        echo "Notebook name will be"
+        echo $nbfile
+        jq --arg val "$nbfile" '.displayName = $val' deploy/template.json > deploy/temp1.json
+        jq --arg payloadValue "$payload" '.definition.parts[0].payload = $payloadValue' deploy/temp1.json > deploy/final.json 
+        echo "displaying temp1.json"
+        echo $(cat deploy/temp1.json)
+        echo "displaying Final.json"
+        echo $(cat deploy/final.json)
+        finaljson=$(cat deploy/final.json)
+        curl --location 'https://api.fabric.microsoft.com/v1/workspaces/654d6099-5fef-4a37-90b2-c07d16f3f88a/items' \
+          --header 'Content-Type: application/json' \
+          --header 'Host: graph.microsoft.com' \
+          --header "Authorization: Bearer $AZURE_ACCESS_TOKEN" \
+          --data "$finaljson"
+      fi
+    done
