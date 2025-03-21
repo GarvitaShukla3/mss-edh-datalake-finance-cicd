@@ -49,9 +49,18 @@ jobs:
 
           #python -m pip install --upgrade pip
           for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
-           stackfile=$(echo $file | cut -f3 -d'/')
-           echo $stackfile
-           parameter_value=$(cat deploy/notebook/$stackfile)
+          # Skip empty entries or directories
+          if [ -z "$file" ] || [ -d "$file" ]; then
+          echo "Skipping invalid entry: $file"
+          continue
+          fi
+
+           # Extract filename from the path
+           stackfile=$(basename "$file")
+           echo "Processing file: $stackfile"
+
+           # Ensure the file exists before proceeding
+           if [ -f "deploy/notebook/$stackfile" ]; then
            echo "converting the python code"
            sed 's/53c6f1fd-24c3-4ab6-b9f2-a283c3bb102c/958077ec-bae1-4bda-b9a2-2116158d5879/g' deploy/notebook/$stackfile > deploy/notebook_ba 
            sed 's/654d6099-5fef-4a37-90b2-c07d16f3f88a/0fde94f2-391e-42c0-bc8c-f29f17cac5f6/g' deploy/notebook_base64_tmp_1.txt > deploy/noteb 
