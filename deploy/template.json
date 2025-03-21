@@ -1,0 +1,17 @@
+{
+    "displayName": "MyNb07192024-test6",
+    "type": "Notebook",
+    "parentReference": {
+        "path": "/drive/root:/test"
+    },
+    "definition": {
+        "format": "ipynb",
+        "parts": [
+            {
+                "path": "artifact.content.ipynb",
+                "payload": "payload",
+                "payloadType": "InlineBase64"
+            }
+        ]
+    }
+}
