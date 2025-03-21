@@ -12,28 +12,28 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
-      - name: Azure Login
-        env:
-          AZURE_USERNAME: ${{ secrets. AZURE_USERNAME}}
-          AZURE_PASSWORD: ${{ secrets. AZURE_PASSWORD }}
-          ACTIONS_ALLOW_UNSECURE_COMMANDS: true
-        run: >
-          az login --username $AZURE_USERNAME --password $AZURE_PASSWORD
-          echo "::set-env name=AZURE_ACCESS_TOKEN::$(az account get-access-token --resource 'https://api.fabric.microsoft.com' --query 'accessToken' -o tsv)" 
-          echo "Access Token: ${{ env.AZURE_ACCESS_TOKEN }}"		
-      - name: Print Access Token
-        run: |
-          echo "${{ env.AZURE_ACCESS_TOKEN }}"		
+      # - name: Azure Login
+      #   env:
+      #     AZURE_USERNAME: ${{ secrets. AZURE_USERNAME}}
+      #     AZURE_PASSWORD: ${{ secrets. AZURE_PASSWORD }}
+      #     ACTIONS_ALLOW_UNSECURE_COMMANDS: true
+      #   run: >
+      #     az login --username $AZURE_USERNAME --password $AZURE_PASSWORD
+      #     echo "::set-env name=AZURE_ACCESS_TOKEN::$(az account get-access-token --resource 'https://api.fabric.microsoft.com' --query 'accessToken' -o tsv)" 
+      #     echo "Access Token: ${{ env.AZURE_ACCESS_TOKEN }}"		
+      # - name: Print Access Token
+      #   run: |
+      #     echo "${{ env.AZURE_ACCESS_TOKEN }}"		
       - name: Use Access Token in Workfloww
-        run: |
-          echo "Access Token: ${{ env.AZURE_ACCESS_TOKEN }}"		
+        env:
+           AZURE_ACCESS_TOKEN: ${{ secrets. AZURE_ACCESS_TOKEN}}		
       - name: Get changed files
         id: changed-files
         uses: tj-actions/changed-files@v33
       - name: Make API Call
         env:
           ID_TOKEN: ${{ secrets.MYID_TOKEN }}
-          AZURE_ACCESS_TOKEN: ${{ env.AZURE_ACCESS_TOKEN }}
+          AZURE_ACCESS_TOKEN: ${{ secrets.AZURE_ACCESS_TOKEN }}
         run: >
           #for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
           # stackfile=$(echo $file | cut -f2 -d'/')
