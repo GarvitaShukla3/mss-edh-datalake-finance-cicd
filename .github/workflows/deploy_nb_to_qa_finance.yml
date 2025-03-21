@@ -81,7 +81,7 @@ jobs:
            echo $(cat deploy/final.json)
            finaljson=$(cat deploy/final.json)
            #--data '{"displayName":"$(nbfile)","type":"Notebook","definition":{"format":"ipynb", "parts": ["path":"artifact.content.ipynb","payload":"$(payload)","payloadType":"InlineBase64"}]}}' 
-           curl --location 'https://api.fabric.microsoft.com/v1/workspaces/ace17bc4-77fb-488c-8fc5-2d949f715ba5/notebooks/14067047-2d6f-4227-a7ba-e957f8289f8b/updateDefinition' \
+           curl --location 'https://api.fabric.microsoft.com/v1/workspaces/654d6099-5fef-4a37-90b2-c07d16f3f88a/items' \
             --header 'Content-Type: application/json' \
             --header 'Host: graph.microsoft.com' \
             --header "Authorization: Bearer $AZURE_ACCESS_TOKEN" \
