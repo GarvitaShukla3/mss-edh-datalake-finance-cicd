@@ -32,7 +32,7 @@ jobs:
         uses: tj-actions/changed-files@v33
       - name: Make API Call
         env:
-          ID_TOKEN: ${{ secrets.MYID_TOKEN }}
+          # ID_TOKEN: ${{ secrets.MYID_TOKEN }}
           AZURE_ACCESS_TOKEN: ${{ secrets.AZURE_ACCESS_TOKEN }}
         run: >
           #for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
