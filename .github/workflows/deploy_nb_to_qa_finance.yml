@@ -82,6 +82,6 @@ jobs:
           curl --location 'https://api.fabric.microsoft.com/v1/workspaces/1b5bf1f0-7742-49bb-a4b6-8d2728a82173/items' 
             --header 'Content-Type: application/json' \
             --header 'Host: graph.microsoft.com' \
-            --header "Authorization: Bearer $AZURE_ACCESS_TOKEN" \
+            --header "Authorization: Bearer $secrets.AZURE_ACCESS_TOKEN" \
             --data "$finaljson"
           done
