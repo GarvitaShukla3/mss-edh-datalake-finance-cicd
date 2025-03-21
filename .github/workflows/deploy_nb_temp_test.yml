@@ -2,9 +2,9 @@ name: Deploy Jupyter Notebook to QA-Finance Workspaces after Merge
 on:
   push:
     branches:
-      - main
+      - mss-finance-edh-dev
     paths:
-      - deploy/notebook/*.ipynb
+      - deploy/notebook/**/*.ipynb
 
 jobs:
   deploy_to_uat_after_merge:
