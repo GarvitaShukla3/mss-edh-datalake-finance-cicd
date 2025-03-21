@@ -24,9 +24,9 @@ jobs:
       # - name: Print Access Token
       #   run: |
       #     echo "${{ env.AZURE_ACCESS_TOKEN }}"		
-      - name: Use Access Token in Workfloww
-        uses:
-          AZURE_ACCESS_TOKEN: ${{ secrets. AZURE_ACCESS_TOKEN}}		
+      # - name: Use Access Token in Workfloww
+      #   uses:
+      #     AZURE_ACCESS_TOKEN: ${{ secrets. AZURE_ACCESS_TOKEN}}		
       - name: Get changed files
         id: changed-files
         uses: tj-actions/changed-files@v33
