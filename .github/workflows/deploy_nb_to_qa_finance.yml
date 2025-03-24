@@ -46,7 +46,7 @@ jobs:
             
             finaljson=$(cat deploy/final.json)
 
-            curl --location 'https://api.fabric.microsoft.com/v1/workspaces/654d6099-5fef-4a37-90b2-c07d16f3f88a/updateDefinition' \
+            curl --location 'https://api.fabric.microsoft.com/v1/workspaces/654d6099-5fef-4a37-90b2-c07d16f3f88a/synapsenotebooks/14067047-2d6f-4227-a7ba-e957f8289f8b/updateDefinition' \
               --header 'Content-Type: application/json' \
               --header "Authorization: Bearer $AZURE_ACCESS_TOKEN" \
               --data "$finaljson"
