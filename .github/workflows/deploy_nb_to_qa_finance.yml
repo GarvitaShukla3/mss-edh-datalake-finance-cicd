@@ -29,7 +29,7 @@ jobs:
             echo "Converting the python code"
             sed 's/53c6f1fd-24c3-4ab6-b9f2-a283c3bb102c/958077ec-bae1-4bda-b9a2-2116158d5879/g' deploy/notebook/$stackfile > deploy/notebook_base64_tmp.txt
             sed 's/654d6099-5fef-4a37-90b2-c07d16f3f88a/0fde94f2-391e-42c0-bc8c-f29f17cac5f6/g' deploy/notebook_base64_tmp.txt > deploy/notebook_base64_tmp1.txt
-            python -m base64 -e deploy/notebook_base64_tmp1.txt > deploy/notebook_base64_tmp1_base64.txt
+            base64 -w 0 deploy/notebook_base64_tmp1.txt > deploy/notebook_base64_tmp1_base64.txt
             payload=$(cat deploy/notebook_base64_tmp1_base64.txt)
             echo "Payload content: $payload"
 
@@ -42,12 +42,13 @@ jobs:
             echo "Displaying temp1.json"
             cat deploy/temp1.json
             echo "Displaying final.json"
-            cat deploy/final.json
-            
+            cat deploy/final.json | jq
+
             finaljson=$(cat deploy/final.json)
 
-            curl --location 'https://api.fabric.microsoft.com/v1/workspaces/654d6099-5fef-4a37-90b2-c07d16f3f88a/synapsenotebooks/14067047-2d6f-4227-a7ba-e957f8289f8b/updateDefinition' \
-              --header 'Content-Type: application/json' \
-              --header "Authorization: Bearer $AZURE_ACCESS_TOKEN" \
-              --data "$finaljson"
+            curl -v --location 'https://api.fabric.microsoft.com/v1/workspaces/654d6099-5fef-4a37-90b2-c07d16f3f88a/synapsenotebooks/14067047-2d6f-4227-a7ba-e957f8289f8b/updateDefinition' \
+             --header 'Content-Type: application/json' \
+             --header "Authorization: Bearer $AZURE_ACCESS_TOKEN" \
+             --data "$finaljson"
+             
           done
