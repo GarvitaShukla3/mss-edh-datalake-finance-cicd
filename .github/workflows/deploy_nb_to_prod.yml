@@ -1,0 +1,68 @@
+name: Deploy Notebooks to Microsoft Fabric (Restricted + .ipynb Only)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - deploy/files/**/*.ipynb
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Restrict to allowed actor
+        run: |
+          echo "Triggered by: ${{ github.actor }}"
+          if [ "${{ github.actor }}" != "${{ secrets.FABRIC_ID }}" ]; then
+            echo "❌ Unauthorized actor. Deployment aborted."
+            exit 1
+          fi
+
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set environment variables from secrets
+        run: |
+          echo "FABRIC_API_TOKEN=${{ secrets.FABRIC_SECRET_TOKEN }}" >> $GITHUB_ENV
+          echo "FABRIC_WORKSPACE_ID=${{ secrets.FABRIC_WORKSPACE_ID }}" >> $GITHUB_ENV
+
+      - name: Get Changed .ipynb Files
+        id: changed-files
+        uses: tj-actions/changed-files@v33
+        with:
+          files: |
+            deploy/files/**/*.ipynb
+
+      - name: Deploy Changed Notebooks to Microsoft Fabric
+        run: |
+          echo "Changed .ipynb files:"
+          echo "${{ steps.changed-files.outputs.all_changed_files }}"
+
+          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            if [[ "$file" == *.ipynb ]]; then
+              echo "✅ Processing notebook: $file"
+
+              filename=$(basename "$file")
+              name="${filename%.*}"
+
+              base64_content=$(base64 "$file" | tr -d '\n')
+
+              jq --arg name "$name" \
+                 --arg payload "$base64_content" \
+                 '.displayName = $name | .definition.parts[0].payload = $payload' \
+                 deploy/template.json > deploy/final.json
+
+              echo "📤 Sending $filename to Microsoft Fabric..."
+
+              curl --location "https://api.fabric.microsoft.com/v1/workspaces/$FABRIC_WORKSPACE_ID/items" \
+                --header "Authorization: Bearer $FABRIC_API_TOKEN" \
+                --header "Content-Type: application/json" \
+                --data "@deploy/final.json"
+
+              echo "✅ Deployed $filename"
+            else
+              echo "⚠️ Skipping non-notebook file: $file"
+            fi
+          done
