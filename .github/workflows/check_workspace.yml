@@ -13,7 +13,7 @@ jobs:
         run: |
           RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
-            "https://app.fabric.microsoft.com/workspaces/$WORKSPACE_ID/status")
+            "https://api.fabric.microsoft.com/workspaces/$WORKSPACE_ID/status")
           
           if [ "$RESPONSE" -eq 200 ]; then
             echo "Workspace $WORKSPACE_ID is reachable."
