@@ -31,7 +31,10 @@ jobs:
             deploy/notebook/**/*.ipynb
 
       - name: Deploy changed notebooks to Microsoft Fabric
+        if: steps.changed-files.outputs.all_changed_files != ''
         run: |
+          echo "Changed notebooks: ${{ steps.changed-files.outputs.all_changed_files }}"
+          
           for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
             echo "📘 Processing: $file"
 
@@ -44,20 +47,31 @@ jobs:
             # Encode notebook in base64 (no line wrapping)
             base64_content=$(base64 -w 0 "$file")
 
-            # Inject notebook name and payload into template
+            # Create the final payload using the template
             jq --arg name "$notebook_name" \
                --arg payload "$base64_content" \
                '.displayName = $name | .definition.parts[0].payload = $payload' \
                deploy/template.json > deploy/final.json
 
-            # Send to Microsoft Fabric
-            echo "🚀 Deploying $filename to Fabric workspace..."
+            echo "🚀 Deploying $filename to Microsoft Fabric..."
 
-            response=$(curl --silent --show-error --fail --location \
+            response=$(curl --silent --write-out "HTTPSTATUS:%{http_code}" --location \
               --header "Authorization: Bearer $AZURE_ACCESS_TOKEN" \
               --header "Content-Type: application/json" \
               --data "@deploy/final.json" \
               "https://api.fabric.microsoft.com/v1/workspaces/$FABRIC_WORKSPACE_ID/items")
 
-            echo "✅ Successfully deployed: $filename"
+            # Split response and HTTP status
+            http_body=$(echo "$response" | sed -e 's/HTTPSTATUS\:.*//g')
+            http_status=$(echo "$response" | tr -d '\n' | sed -e 's/.*HTTPSTATUS://')
+
+            if [ "$http_status" -ne 200 ] && [ "$http_status" -ne 201 ]; then
+              echo "❌ Failed to deploy $filename"
+              echo "HTTP Status: $http_status"
+              echo "Response:"
+              echo "$http_body"
+              exit 1
+            else
+              echo "✅ Successfully deployed: $filename"
+            fi
           done
