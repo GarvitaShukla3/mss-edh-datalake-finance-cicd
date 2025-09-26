@@ -24,10 +24,21 @@ jobs:
             -d "grant_type=client_credentials" \
             "https://login.microsoftonline.com/$TENANT_ID/oauth2/v2.0/token")
 
-          echo "Response: $response"
+          echo "Full response:"
+          echo "$response"
+
           access_token=$(echo "$response" | jq -r '.access_token')
-          echo "Access token: $access_token"
-          
+
+          if [ "$access_token" = "null" ] || [ -z "$access_token" ]; then
+            echo "❌ ERROR: Failed to get access token"
+            echo "Response contains error info:"
+            echo "$response" | jq -r '.error_description // .error'
+            exit 1
+          fi
+
+          echo "Access token:"
+          echo "$access_token"
+
           echo "token=$access_token" >> $GITHUB_OUTPUT
 
       - name: Use the token
