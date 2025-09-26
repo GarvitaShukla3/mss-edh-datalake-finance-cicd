@@ -20,7 +20,7 @@ jobs:
 
       - name: Set up environment variables
         run: |
-          echo "AZURE_ACCESS_TOKEN=${{ secrets.AZURE_ACCESS_TOKEN }}" >> $GITHUB_ENV
+          echo "AZURE_ACCESS_TOKEN=${{ secrets.FABRIC_ACCESS_TOKEN }}" >> $GITHUB_ENV
           echo "FABRIC_WORKSPACE_ID=${{ secrets.FABRIC_WORKSPACE_ID }}" >> $GITHUB_ENV
 
       - name: Get changed .ipynb files
@@ -56,10 +56,11 @@ jobs:
             echo "🚀 Deploying $filename to Microsoft Fabric..."
 
             response=$(curl --silent --write-out "HTTPSTATUS:%{http_code}" --location \
-              --header "Authorization: Bearer $AZURE_ACCESS_TOKEN" \
+              --header "Authorization: Bearer $FABRIC_ACCESS_TOKEN" \
               --header "Content-Type: application/json" \
               --data "@deploy/final.json" \
               "https://api.fabric.microsoft.com/v1/workspaces/$FABRIC_WORKSPACE_ID/items")
+
 
             # Split response and HTTP status
             http_body=$(echo "$response" | sed -e 's/HTTPSTATUS\:.*//g')
