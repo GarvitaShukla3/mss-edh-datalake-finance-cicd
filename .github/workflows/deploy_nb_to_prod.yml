@@ -1,4 +1,4 @@
-name: Deploy Jupyter Notebooks to Fabric on Merge
+name: Deploy notebook garvita
 
 on:
   push:
