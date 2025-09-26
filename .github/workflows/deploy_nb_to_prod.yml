@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - deploy/files/**/*.ipynb
+      - deploy/notebook/**/*.ipynb
 
 jobs:
   deploy:
