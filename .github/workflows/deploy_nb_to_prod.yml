@@ -59,7 +59,9 @@ jobs:
               --header "Authorization: Bearer $FABRIC_ACCESS_TOKEN" \
               --header "Content-Type: application/json" \
               --data "@deploy/final.json" \
-              "https://api.fabric.microsoft.com/v1/workspaces/$FABRIC_WORKSPACE_ID/items")
+              "https://api.fabric.microsoft.com/groups/$FABRIC_WORKSPACE_ID/items")
+
+  
 
 
             # Split response and HTTP status
