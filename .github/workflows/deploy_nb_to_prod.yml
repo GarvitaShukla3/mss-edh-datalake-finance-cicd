@@ -25,7 +25,7 @@ jobs:
 
       - name: Set environment variables from secrets
         run: |
-          echo "FABRIC_API_TOKEN=${{ secrets.FABRIC_SECRET_TOKEN }}" >> $GITHUB_ENV
+          echo "FABRIC_SECRET_TOKEN=${{ secrets.FABRIC_SECRET_TOKEN }}" >> $GITHUB_ENV
           echo "FABRIC_WORKSPACE_ID=${{ secrets.FABRIC_WORKSPACE_ID }}" >> $GITHUB_ENV
 
       - name: Verify Microsoft Fabric Credentials
@@ -51,7 +51,7 @@ jobs:
         uses: tj-actions/changed-files@v33
         with:
           files: |
-            deploy/files/**/*.ipynb
+            deploy/notebook/**/*.ipynb
 
       - name: Deploy Changed Notebooks to Microsoft Fabric
         run: |
