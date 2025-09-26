@@ -1,4 +1,4 @@
-name: Deploy Notebooks to Microsoft Fabric (Restricted + .ipynb Only)
+name: Deploy Jupyter Notebooks to Fabric on Merge
 
 on:
   push:
@@ -8,82 +8,56 @@ on:
       - deploy/notebook/**/*.ipynb
 
 jobs:
-  deploy:
+  deploy_notebooks:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Restrict to allowed actor
-        run: |
-          echo "🔒 Triggered by: ${{ github.actor }}"
-          if [ "${{ github.actor }}" != "${{ secrets.GARVITA_ID }}" ]; then
-            echo "❌ Unauthorized actor. Deployment aborted."
-            exit 1
-          fi
-
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Set environment variables
-        run: |
-          echo "FABRIC_WORKSPACE_ID=${{ secrets.FABRIC_WORKSPACE_ID }}" >> $GITHUB_ENV
-          echo "FABRIC_ACCESS_TOKEN=${{ secrets.FABRIC_ACCESS_TOKEN }}" >> $GITHUB_ENV
-
-      - name: Install jq
+      - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Verify Microsoft Fabric Access
+      - name: Set up environment variables
         run: |
-          echo "🔐 Verifying Fabric access..."
+          echo "AZURE_ACCESS_TOKEN=${{ secrets.AZURE_ACCESS_TOKEN }}" >> $GITHUB_ENV
+          echo "FABRIC_WORKSPACE_ID=${{ secrets.FABRIC_WORKSPACE_ID }}" >> $GITHUB_ENV
 
-          status_code=$(curl -s -o response.json -w "%{http_code}" \
-            --location "https://api.fabric.microsoft.com/v1/workspaces/$FABRIC_WORKSPACE_ID" \
-            --header "Authorization: Bearer $FABRIC_ACCESS_TOKEN")
-
-          if [ "$status_code" -ne 200 ]; then
-            echo "❌ Failed to authenticate or access workspace."
-            echo "HTTP status: $status_code"
-            echo "Response body:"
-            cat response.json
-            exit 1
-          fi
-
-          echo "✅ Fabric access verified successfully."
-
-      - name: Get Changed .ipynb Files
+      - name: Get changed .ipynb files
         id: changed-files
         uses: tj-actions/changed-files@v33
         with:
           files: |
             deploy/notebook/**/*.ipynb
 
-      - name: Deploy Changed Notebooks to Microsoft Fabric
+      - name: Deploy changed notebooks to Microsoft Fabric
         run: |
-          echo "🔍 Checking for changed notebooks..."
-
           for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
-            if [[ "$file" == *.ipynb ]]; then
-              echo "📘 Processing notebook: $file"
+            echo "📘 Processing: $file"
 
-              filename=$(basename "$file")
-              name="${filename%.*}"
+            # Extract notebook name without extension
+            filename=$(basename "$file")
+            notebook_name="${filename%.ipynb}"
 
-              base64_content=$(base64 -w 0 "$file")
+            echo "🧾 Notebook name: $notebook_name"
 
-              jq --arg name "$name" \
-                 --arg payload "$base64_content" \
-                 '.displayName = $name | .definition.parts[0].payload = $payload' \
-                 deploy/template.json > deploy/final.json
+            # Encode notebook in base64 (no line wrapping)
+            base64_content=$(base64 -w 0 "$file")
 
-              echo "📤 Deploying $filename to Microsoft Fabric..."
+            # Inject notebook name and payload into template
+            jq --arg name "$notebook_name" \
+               --arg payload "$base64_content" \
+               '.displayName = $name | .definition.parts[0].payload = $payload' \
+               deploy/template.json > deploy/final.json
 
-              curl --silent --show-error --fail --location \
-                --header "Authorization: Bearer $FABRIC_ACCESS_TOKEN" \
-                --header "Content-Type: application/json" \
-                --data "@deploy/final.json" \
-                "https://api.fabric.microsoft.com/v1/workspaces/$FABRIC_WORKSPACE_ID/items"
+            # Send to Microsoft Fabric
+            echo "🚀 Deploying $filename to Fabric workspace..."
 
-              echo "✅ Successfully deployed: $filename"
-            else
-              echo "⚠️ Skipping non-notebook file: $file"
-            fi
+            response=$(curl --silent --show-error --fail --location \
+              --header "Authorization: Bearer $AZURE_ACCESS_TOKEN" \
+              --header "Content-Type: application/json" \
+              --data "@deploy/final.json" \
+              "https://api.fabric.microsoft.com/v1/workspaces/$FABRIC_WORKSPACE_ID/items")
+
+            echo "✅ Successfully deployed: $filename"
           done
