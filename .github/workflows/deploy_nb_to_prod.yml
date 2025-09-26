@@ -15,7 +15,7 @@ jobs:
       - name: Restrict to allowed actor
         run: |
           echo "Triggered by: ${{ github.actor }}"
-          if [ "${{ github.actor }}" != "${{ secrets.FABRIC_ID }}" ]; then
+          if [ "${{ github.actor }}" != "${{ secrets.GARVITA_ID }}" ]; then
             echo "❌ Unauthorized actor. Deployment aborted."
             exit 1
           fi
@@ -34,7 +34,7 @@ jobs:
 
           response=$(curl -s -o response.json -w "%{http_code}" \
             --location "https://api.fabric.microsoft.com/v1/workspaces/$FABRIC_WORKSPACE_ID" \
-            --header "Authorization: Bearer $FABRIC_API_TOKEN")
+            --header "Authorization: Bearer $FABRIC_SECRET_TOKEN")
 
           if [ "$response" -ne 200 ]; then
             echo "❌ Failed to authenticate or access workspace."
