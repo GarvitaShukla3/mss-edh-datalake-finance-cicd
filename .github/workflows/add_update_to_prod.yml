@@ -39,8 +39,7 @@ jobs:
           TOKEN: ${{ steps.auth.outputs.token }}
           WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
         run: |
-          set -e
-
+          
           API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
 
           # Process only notebooks in deploy/notebook folder
