@@ -1,12 +1,8 @@
-name: Generate Azure Access Token
+name: Generate Microsoft Fabric Access Token
 
 on:
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to generate token for'
-        required: false
-        default: 'prod'
+  workflow_dispatch:   # manual trigger
+  # You can add other triggers if needed, e.g., push or schedule
 
 env:
   TENANT_ID: ${{ secrets.FABRIC_TENANT_ID }}
@@ -14,21 +10,31 @@ env:
   CLIENT_SECRET: ${{ secrets.FABRIC_SECRET_TOKEN }}
 
 jobs:
-  generate_token:
+  get_access_token:
     runs-on: ubuntu-latest
 
     steps:
       - name: Get OAuth2 token
         id: auth
         run: |
-          echo "Getting token for environment: ${{ github.event.inputs.environment }}"
-          TOKEN=$(curl -X POST -H "Content-Type: application/x-www-form-urlencoded" \
+          echo "Getting token for environment: prod"
+
+          RESPONSE=$(curl -X POST -H "Content-Type: application/x-www-form-urlencoded" \
             -d "grant_type=client_credentials&client_id=${{ env.CLIENT_ID }}&client_secret=${{ env.CLIENT_SECRET }}&scope=https://api.fabric.microsoft.com/.default" \
-            "https://login.microsoftonline.com/${{ env.TENANT_ID }}/oauth2/v2.0/token" | jq -r '.access_token')
+            "https://login.microsoftonline.com/${{ env.TENANT_ID }}/oauth2/v2.0/token")
+
+          echo "Raw response: $RESPONSE"
+
+          TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
+
+          echo "Parsed token: $TOKEN"
+
+          if [ "$TOKEN" = "null" ] || [ -z "$TOKEN" ]; then
+            echo "❌ Failed to get access token"
+            exit 1
+          fi
 
           echo "token=$TOKEN" >> $GITHUB_OUTPUT
 
-      - name: Show Access Token
-        run: |
-          echo "Access Token:"
-          echo "${{ steps.auth.outputs.token }}"
+      - name: Show token output (masked by default)
+        run: echo "Token: ${{ steps.auth.outputs.token }}"
