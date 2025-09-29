@@ -12,7 +12,7 @@ env:
   CLIENT_ID: ${{ secrets.FABRIC_ID }}
   CLIENT_SECRET: ${{ secrets.FABRIC_SECRET_TOKEN }}
   WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
-  SUBSCRIPTION_ID: ${{ secrets.AZURE_ACCESS_TOKEN }}
+  SUBSCRIPTION_ID: ${{ secrets.FABRIC_ACCESS_TOKEN }}
 
 jobs:
   sync:
@@ -41,26 +41,50 @@ jobs:
 
           API_BASE="https://api.fabric.microsoft.com/workspaces/${WORKSPACE_ID}/files"
 
-          # Loop over all files in the repo
+          # Function to URL encode file path (Python approach)
+          urlencode() {
+            python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$1"
+          }
+
           for FILE in $(git ls-files); do
             echo "Processing $FILE..."
 
-            # Check if file exists in Fabric workspace (example endpoint)
+            ENCODED_FILE=$(urlencode "$FILE")
+
+            # Check if file exists
             HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
               -H "Authorization: Bearer $TOKEN" \
-              "$API_BASE/$FILE")
+              "$API_BASE/$ENCODED_FILE")
 
-            CONTENT=$(base64 $FILE | tr -d '\n')
+            CONTENT=$(base64 "$FILE" | tr -d '\n')
 
             if [ "$HTTP_STATUS" = "200" ]; then
               echo "File exists. Updating $FILE ..."
-              curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+              RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
                 -d "{\"content\":\"$CONTENT\"}" \
-                "$API_BASE/$FILE"
+                "$API_BASE/$ENCODED_FILE")
+
+              HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+              BODY=$(echo "$RESPONSE" | sed '$d')
+
+              if [[ "$HTTP_CODE" =~ ^2 ]]; then
+                echo "✅ Updated $FILE successfully. Status: $HTTP_CODE"
+              else
+                echo "❌ Failed to update $FILE. Status: $HTTP_CODE, Response: $BODY"
+              fi
             else
               echo "File does not exist. Creating $FILE ..."
-              curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+              RESPONSE=$(curl -s -w "\n%{http_code}" -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
                 -d "{\"fileName\":\"$FILE\", \"content\":\"$CONTENT\"}" \
-                "$API_BASE"
+                "$API_BASE")
+
+              HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+              BODY=$(echo "$RESPONSE" | sed '$d')
+
+              if [[ "$HTTP_CODE" =~ ^2 ]]; then
+                echo "✅ Created $FILE successfully. Status: $HTTP_CODE"
+              else
+                echo "❌ Failed to create $FILE. Status: $HTTP_CODE, Response: $BODY"
+              fi
             fi
           done
