@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    paths:
+      - deploy/notebook/**/*.ipynb
 
 env:
   TENANT_ID: ${{ secrets.FABRIC_TENANT_ID }}
