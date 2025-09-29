@@ -1,0 +1,64 @@
+name: Sync Repo to Microsoft Fabric Workspace
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  TENANT_ID: ${{ secrets.FABRIC_TENANT_ID }}
+  CLIENT_ID: ${{ secrets.FABRIC_ID }}
+  CLIENT_SECRET: ${{ secrets.FABRIC_SECRET_TOKEN }}
+  WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
+  SUBSCRIPTION_ID: ${{ secrets.AZURE_ACCESS_TOKEN }}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Get OAuth2 token
+        id: auth
+        run: |
+          echo "Getting token..."
+          TOKEN=$(curl -X POST -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "grant_type=client_credentials&client_id=${{ env.CLIENT_ID }}&client_secret=${{ env.CLIENT_SECRET }}&scope=https://analysis.windows.net/powerbi/api/.default" \
+            "https://login.microsoftonline.com/${{ env.TENANT_ID }}/oauth2/v2.0/token" | jq -r '.access_token')
+
+          echo "token=$TOKEN" >> $GITHUB_OUTPUT
+
+      - name: Sync files to Microsoft Fabric workspace
+        env:
+          TOKEN: ${{ steps.auth.outputs.token }}
+          WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
+        run: |
+          set -e
+
+          API_BASE="https://api.fabric.microsoft.com/workspaces/${WORKSPACE_ID}/files"
+
+          # Loop over all files in the repo
+          for FILE in $(git ls-files); do
+            echo "Processing $FILE..."
+
+            # Check if file exists in Fabric workspace (example endpoint)
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "Authorization: Bearer $TOKEN" \
+              "$API_BASE/$FILE")
+
+            CONTENT=$(base64 $FILE | tr -d '\n')
+
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "File exists. Updating $FILE ..."
+              curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+                -d "{\"content\":\"$CONTENT\"}" \
+                "$API_BASE/$FILE"
+            else
+              echo "File does not exist. Creating $FILE ..."
+              curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+                -d "{\"fileName\":\"$FILE\", \"content\":\"$CONTENT\"}" \
+                "$API_BASE"
+            fi
+          done
