@@ -32,7 +32,7 @@ jobs:
 
           echo "token=$TOKEN" >> $GITHUB_OUTPUT
 
-      - name: Sync files to Microsoft Fabric workspace
+      - name: Sync notebooks to Microsoft Fabric workspace
         env:
           TOKEN: ${{ steps.auth.outputs.token }}
           WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
@@ -41,12 +41,12 @@ jobs:
 
           API_BASE="https://app.fabric.microsoft.com/groups/${WORKSPACE_ID}/list?experience=fabric-developer"
 
-          # Function to URL encode file path (Python approach)
           urlencode() {
             python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$1"
           }
 
-          for FILE in $(git ls-files); do
+          # Only process notebook files from deploy/notebook folder
+          for FILE in $(git ls-files deploy/notebook/**/*.ipynb); do
             echo "Processing $FILE..."
 
             ENCODED_FILE=$(urlencode "$FILE")
@@ -67,10 +67,13 @@ jobs:
               HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
               BODY=$(echo "$RESPONSE" | sed '$d')
 
+              echo "Response body: $BODY"
+              echo "HTTP status: $HTTP_CODE"
+
               if [[ "$HTTP_CODE" =~ ^2 ]]; then
-                echo "✅ Updated $FILE successfully. Status: $HTTP_CODE"
+                echo "✅ Updated $FILE successfully."
               else
-                echo "❌ Failed to update $FILE. Status: $HTTP_CODE, Response: $BODY"
+                echo "❌ Failed to update $FILE."
               fi
             else
               echo "File does not exist. Creating $FILE ..."
@@ -81,10 +84,13 @@ jobs:
               HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
               BODY=$(echo "$RESPONSE" | sed '$d')
 
+              echo "Response body: $BODY"
+              echo "HTTP status: $HTTP_CODE"
+
               if [[ "$HTTP_CODE" =~ ^2 ]]; then
-                echo "✅ Created $FILE successfully. Status: $HTTP_CODE"
+                echo "✅ Created $FILE successfully."
               else
-                echo "❌ Failed to create $FILE. Status: $HTTP_CODE, Response: $BODY"
+                echo "❌ Failed to create $FILE."
               fi
             fi
           done
