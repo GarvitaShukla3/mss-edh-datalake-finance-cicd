@@ -39,7 +39,7 @@ jobs:
         run: |
           set -e
 
-          API_BASE="https://app.fabric.microsoft.com/groups/${WORKSPACE_ID}/files"
+          API_BASE="https://app.fabric.microsoft.com/groups/${WORKSPACE_ID}/list?experience=fabric-developer"
 
           # Function to URL encode file path (Python approach)
           urlencode() {
