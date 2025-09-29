@@ -38,6 +38,7 @@ jobs:
           WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
         run: |
           set -e
+          set -x
 
           API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
 
