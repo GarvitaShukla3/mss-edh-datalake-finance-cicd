@@ -21,7 +21,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      - name: Install jq
+      - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y jq
 
       - name: Get OAuth2 token
@@ -43,6 +43,7 @@ jobs:
 
           API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
 
+          # Process only notebooks in deploy/notebook folder
           for FILE in $(git ls-files 'deploy/notebook/**/*.ipynb'); do
             echo "Processing $FILE..."
 
@@ -52,7 +53,7 @@ jobs:
             # Encode notebook content in base64 without line wrap
             CONTENT_BASE64=$(base64 -w 0 "$FILE")
 
-            # Build JSON payload using template and jq
+            # Build JSON payload using jq with InlineBase64 payload
             PAYLOAD=$(jq -n \
               --arg dn "$DISPLAY_NAME" \
               --arg fn "$FILE_NAME" \
@@ -74,7 +75,6 @@ jobs:
 
             echo "Uploading notebook: $DISPLAY_NAME"
 
-            # POST to create new notebook
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
               -H "Authorization: Bearer $TOKEN" \
               -H "Content-Type: application/json" \
