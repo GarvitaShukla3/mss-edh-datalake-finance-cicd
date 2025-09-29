@@ -12,7 +12,6 @@ env:
   CLIENT_ID: ${{ secrets.FABRIC_ID }}
   CLIENT_SECRET: ${{ secrets.FABRIC_SECRET_TOKEN }}
   WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
-  SUBSCRIPTION_ID: ${{ secrets.FABRIC_ACCESS_TOKEN }}
 
 jobs:
   sync:
@@ -27,9 +26,8 @@ jobs:
         run: |
           echo "Getting token..."
           TOKEN=$(curl -X POST -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "grant_type=client_credentials&client_id=${{ env.CLIENT_ID }}&client_secret=${{ env.CLIENT_SECRET }}&scope=https://analysis.windows.net/powerbi/api/.default" \
+            -d "grant_type=client_credentials&client_id=${{ env.CLIENT_ID }}&client_secret=${{ env.CLIENT_SECRET }}&scope=https://api.fabric.microsoft.com/.default" \
             "https://login.microsoftonline.com/${{ env.TENANT_ID }}/oauth2/v2.0/token" | jq -r '.access_token')
-
           echo "token=$TOKEN" >> $GITHUB_OUTPUT
 
       - name: Sync notebooks to Microsoft Fabric workspace
@@ -38,59 +36,68 @@ jobs:
           WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
         run: |
           set -e
+          set -x
 
-          API_BASE="https://app.fabric.microsoft.com/groups/${WORKSPACE_ID}/list?experience=fabric-developer"
+          FABRIC_API="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
 
-          urlencode() {
-            python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$1"
-          }
-
-          # Only process notebook files from deploy/notebook folder
           for FILE in $(git ls-files deploy/notebook/**/*.ipynb); do
-            echo "Processing $FILE..."
+            echo "Processing $FILE"
 
-            ENCODED_FILE=$(urlencode "$FILE")
+            # derive a displayName and internal artifactId / path
+            DISPLAY_NAME=$(basename "$FILE" .ipynb)  # e.g. Notebook1 if file is Notebook1.ipynb
+            # option: maybe you want to namespace or keep subfolders, adapt accordingly
 
-            # Check if file exists
-            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-              -H "Authorization: Bearer $TOKEN" \
-              "$API_BASE/$ENCODED_FILE")
+            # read file content and base64 encode
+            CONTENT_BASE64=$(base64 "$FILE" | tr -d '\n')
 
-            CONTENT=$(base64 "$FILE" | tr -d '\n')
+            # Build body for create / update using the "definition" structure
+            BODY=$(jq -n --arg dn "$DISPLAY_NAME" --arg cnt "$CONTENT_BASE64" \
+              '{
+                 displayName: $dn,
+                 type: "Notebook",
+                 definition: {
+                   format: "ipynb",
+                   parts: [
+                     {
+                       path: "\($dn).ipynb",
+                       payload: $cnt,
+                       payloadType: "InlineBase64"
+                     }
+                   ]
+                 }
+               }')
 
-            if [ "$HTTP_STATUS" = "200" ]; then
-              echo "File exists. Updating $FILE ..."
-              RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-                -d "{\"content\":\"$CONTENT\"}" \
-                "$API_BASE/$ENCODED_FILE")
+            # Check if notebook with this displayName exists (list items)
+            LIST_RESPONSE=$(curl -s -X GET -H "Authorization: Bearer $TOKEN" \
+              "$FABRIC_API?filter=displayName eq '$DISPLAY_NAME'")
 
-              HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-              BODY=$(echo "$RESPONSE" | sed '$d')
+            # parse artifactId if exists
+            ARTIFACT_ID=$(echo "$LIST_RESPONSE" | jq -r '.value[] | select(.displayName=="'"$DISPLAY_NAME"'") | .id')
 
-              echo "Response body: $BODY"
-              echo "HTTP status: $HTTP_CODE"
-
-              if [[ "$HTTP_CODE" =~ ^2 ]]; then
-                echo "✅ Updated $FILE successfully."
-              else
-                echo "❌ Failed to update $FILE."
-              fi
+            if [ -n "$ARTIFACT_ID" ] && [ "$ARTIFACT_ID" != "null" ]; then
+              echo "Notebook exists. Updating definition for artifactId $ARTIFACT_ID"
+              UPDATE_URL="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items/${ARTIFACT_ID}/definition"
+              RESP=$(curl -s -w "\n%{http_code}" -X PATCH \
+                -H "Authorization: Bearer $TOKEN" \
+                -H "Content-Type: application/json" \
+                --data "$BODY" "$UPDATE_URL")
             else
-              echo "File does not exist. Creating $FILE ..."
-              RESPONSE=$(curl -s -w "\n%{http_code}" -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-                -d "{\"fileName\":\"$FILE\", \"content\":\"$CONTENT\"}" \
-                "$API_BASE")
-
-              HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-              BODY=$(echo "$RESPONSE" | sed '$d')
-
-              echo "Response body: $BODY"
-              echo "HTTP status: $HTTP_CODE"
-
-              if [[ "$HTTP_CODE" =~ ^2 ]]; then
-                echo "✅ Created $FILE successfully."
-              else
-                echo "❌ Failed to create $FILE."
-              fi
+              echo "Notebook doesn’t exist. Creating new one: $DISPLAY_NAME"
+              RESP=$(curl -s -w "\n%{http_code}" -X POST \
+                -H "Authorization: Bearer $TOKEN" \
+                -H "Content-Type: application/json" \
+                --data "$BODY" "$FABRIC_API")
             fi
+
+            HTTP_CODE=$(echo "$RESP" | tail -n1)
+            BODY_RESP=$(echo "$RESP" | sed '$d')
+            echo "Response code: $HTTP_CODE"
+            echo "Response body: $BODY_RESP"
+
+            if [[ "$HTTP_CODE" =~ ^2 ]]; then
+              echo "✅ $FILE synced successfully"
+            else
+              echo "❌ Failed syncing $FILE"
+            fi
+
           done
