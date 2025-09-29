@@ -40,7 +40,7 @@ jobs:
           set -e
 
           # Remove /files from API base URL
-          API_BASE="https://api.fabric.microsoft.com/workspaces/${WORKSPACE_ID}/items"
+          API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
 
           urlencode() {
             python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$1"
