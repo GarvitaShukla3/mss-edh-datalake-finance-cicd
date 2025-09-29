@@ -31,7 +31,8 @@ jobs:
 
           API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
 
-          FILES=$(git ls-files 'deploy/notebook/**/*.ipynb')
+          FILES=$(find deploy/notebook -name '*.ipynb')
+
           echo "Files to process: $FILES"
 
           if [ -z "$FILES" ]; then
