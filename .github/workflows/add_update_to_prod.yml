@@ -12,6 +12,7 @@ env:
   CLIENT_ID: ${{ secrets.FABRIC_ID }}
   CLIENT_SECRET: ${{ secrets.FABRIC_SECRET_TOKEN }}
   WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
+  SUBSCRIPTION_ID: ${{ secrets.FABRIC_ACCESS_TOKEN }}
 
 jobs:
   sync:
@@ -26,67 +27,64 @@ jobs:
         run: |
           echo "Getting token..."
           TOKEN=$(curl -X POST -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "grant_type=client_credentials&client_id=${{ env.CLIENT_ID }}&client_secret=${{ env.CLIENT_SECRET }}&scope=https://api.fabric.microsoft.com/.default" \
+            -d "grant_type=client_credentials&client_id=${{ env.CLIENT_ID }}&client_secret=${{ env.CLIENT_SECRET }}&scope=https://analysis.windows.net/powerbi/api/.default" \
             "https://login.microsoftonline.com/${{ env.TENANT_ID }}/oauth2/v2.0/token" | jq -r '.access_token')
 
-          echo "::add-mask::$TOKEN"
-          echo "token=$TOKEN" >> $GITHUB_ENV
+          echo "token=$TOKEN" >> $GITHUB_OUTPUT
 
-      - name: Sync .ipynb files to Microsoft Fabric workspace
+      - name: Sync files to Microsoft Fabric workspace
         env:
-          TOKEN: ${{ env.token }}
+          TOKEN: ${{ steps.auth.outputs.token }}
           WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
         run: |
           set -e
-          set -x
 
-          API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
+          # Remove /files from API base URL
+          API_BASE="https://api.fabric.microsoft.com/workspaces/${WORKSPACE_ID}"
 
-          for FILE in $(git ls-files 'deploy/notebook/**/*.ipynb'); do
+          urlencode() {
+            python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$1"
+          }
+
+          for FILE in $(git ls-files); do
             echo "Processing $FILE..."
 
-            DISPLAY_NAME=$(basename "$FILE" .ipynb)
-            FILE_NAME="${DISPLAY_NAME}.ipynb"
+            ENCODED_FILE=$(urlencode "$FILE")
 
-            CONTENT=$(base64 -w 0 "$FILE")
-
-            BODY=$(jq -n \
-              --arg dn "$DISPLAY_NAME" \
-              --arg file "$FILE_NAME" \
-              --arg payload "$CONTENT" \
-              '{
-                displayName: $dn,
-                type: "Notebook",
-                definition: {
-                  format: "ipynb",
-                  parts: [
-                    {
-                      path: $file,
-                      payload: $payload,
-                      payloadType: "InlineBase64"
-                    }
-                  ]
-                }
-              }')
-
-            echo "Uploading notebook: $DISPLAY_NAME"
-
-            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            # Check if file exists by GET (adjusted URL)
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
               -H "Authorization: Bearer $TOKEN" \
-              -H "Content-Type: application/json" \
-              --data "$BODY" \
-              "$API_BASE")
+              "$API_BASE/$ENCODED_FILE")
 
-            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-            BODY_RESP=$(echo "$RESPONSE" | sed '$d')
+            CONTENT=$(base64 "$FILE" | tr -d '\n')
 
-            echo "HTTP status: $HTTP_CODE"
-            echo "Response body: $BODY_RESP"
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "File exists. Updating $FILE ..."
+              RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+                -d "{\"content\":\"$CONTENT\"}" \
+                "$API_BASE/$ENCODED_FILE")
 
-            if [[ "$HTTP_CODE" =~ ^2 ]]; then
-              echo "✅ Successfully uploaded $FILE"
+              HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+              BODY=$(echo "$RESPONSE" | sed '$d')
+
+              if [[ "$HTTP_CODE" =~ ^2 ]]; then
+                echo "✅ Updated $FILE successfully. Status: $HTTP_CODE"
+              else
+                echo "❌ Failed to update $FILE. Status: $HTTP_CODE, Response: $BODY"
+              fi
             else
-              echo "❌ Failed to upload $FILE"
-              exit 1
+              echo "File does not exist. Creating $FILE ..."
+              RESPONSE=$(curl -s -w "\n%{http_code}" -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+                -d "{\"fileName\":\"$FILE\", \"content\":\"$CONTENT\"}" \
+                "$API_BASE")
+
+              HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+              BODY=$(echo "$RESPONSE" | sed '$d')
+
+              if [[ "$HTTP_CODE" =~ ^2 ]]; then
+                echo "✅ Created $FILE successfully. Status: $HTTP_CODE"
+              else
+                echo "❌ Failed to create $FILE. Status: $HTTP_CODE, Response: $BODY"
+              fi
             fi
           done
