@@ -1,0 +1,131 @@
+name: Sync Repo to Microsoft Fabric Workspace
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - deploy/notebook/**/*.ipynb
+
+env:
+  TENANT_ID: ${{ secrets.TENANT_ID }}
+  CLIENT_ID: ${{ secrets.CLIENT_ID }}
+  CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+  WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq curl
+
+      - name: 🔐 Get Microsoft Fabric Access Token
+        id: get_token
+        run: |
+          echo "🔐 Requesting Fabric access token..."
+          RESPONSE=$(curl -s -X POST -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "grant_type=client_credentials" \
+            -d "client_id=${{ env.CLIENT_ID }}" \
+            -d "client_secret=${{ env.CLIENT_SECRET }}" \
+            -d "scope=https://api.fabric.microsoft.com/.default" \
+            "https://login.microsoftonline.com/${{ env.TENANT_ID }}/oauth2/v2.0/token")
+          echo "🔁 Raw response:"
+          echo "$RESPONSE"
+          ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
+          if [[ "$ACCESS_TOKEN" == "null" || -z "$ACCESS_TOKEN" ]]; then
+            echo "❌ Failed to retrieve access token."
+            exit 1
+          fi
+          echo "✅ Token retrieved successfully."
+          echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
+
+      - name: 🚀 Sync notebooks to Microsoft Fabric workspace
+        env:
+          WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
+          TOKEN: ${{ env.ACCESS_TOKEN }}
+        run: |
+          set -exuo pipefail
+          API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
+          FILES=$(git ls-files | grep '^deploy/notebook/.*\.ipynb$')
+          echo "Files to process: $FILES"
+
+          if [ -z "$FILES" ]; then
+            echo "No notebook files detected to upload, exiting."
+            exit 0
+          fi
+
+          # Fetch all existing notebooks once for efficiency
+          EXISTING_ITEMS_JSON=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE")
+
+          for FILE in $FILES; do
+            echo "Processing $FILE..."
+            DISPLAY_NAME=$(basename "$FILE" .ipynb)
+            FILE_NAME="${DISPLAY_NAME}.ipynb"
+            CONTENT_BASE64=$(base64 -w 0 "$FILE")
+
+            PAYLOAD=$(jq -n \
+              --arg dn "$DISPLAY_NAME" \
+              --arg fn "$FILE_NAME" \
+              --arg payload "$CONTENT_BASE64" \
+              '{
+                displayName: $dn,
+                type: "Notebook",
+                definition: {
+                  format: "ipynb",
+                  parts: [
+                    {
+                      path: $fn,
+                      payload: $payload,
+                      payloadType: "InlineBase64"
+                    }
+                  ]
+                }
+              }')
+
+            # Find if notebook exists by displayName
+            EXISTING_ITEM_ID=$(echo "$EXISTING_ITEMS_JSON" | jq -r --arg dn "$DISPLAY_NAME" '.items[] | select(.displayName == $dn) | .id // empty')
+            EXISTING_PAYLOAD=$(echo "$EXISTING_ITEMS_JSON" | jq -r --arg dn "$DISPLAY_NAME" '.items[] | select(.displayName == $dn) | .definition.parts[0].payload // empty')
+
+            if [ -z "$EXISTING_ITEM_ID" ]; then
+              echo "Notebook '$DISPLAY_NAME' not found, creating..."
+              RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+                -H "Authorization: Bearer $TOKEN" \
+                -H "Content-Type: application/json" \
+                --data "$PAYLOAD" \
+                "$API_BASE")
+            else
+              if [ "$EXISTING_PAYLOAD" = "$CONTENT_BASE64" ]; then
+                echo "No changes detected for '$DISPLAY_NAME', skipping update."
+                continue
+              else
+                echo "Changes detected for '$DISPLAY_NAME', updating..."
+                RESPONSE=$(curl -s -w "\n%{http_code}" -X PATCH \
+                  -H "Authorization: Bearer $TOKEN" \
+                  -H "Content-Type: application/json" \
+                  --data "$PAYLOAD" \
+                  "$API_BASE/$EXISTING_ITEM_ID")
+              fi
+            fi
+
+            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+            BODY_RESP=$(echo "$RESPONSE" | sed '$d')
+
+            echo "HTTP status: $HTTP_CODE"
+            echo "Response body: $BODY_RESP"
+
+            if [[ "$HTTP_CODE" =~ ^2 ]]; then
+              if [ -z "$EXISTING_ITEM_ID" ]; then
+                echo "✅ Successfully created $FILE"
+              else
+                echo "✅ Successfully updated $FILE"
+              fi
+            else
+              echo "❌ Failed to upload/update $FILE"
+              exit 1
+            fi
+          done
