@@ -1,4 +1,4 @@
-name: Update to Microsoft Fabric Workspace
+name: Sync Repo to Microsoft Fabric Workspace
 
 on:
   push:
@@ -16,6 +16,7 @@ env:
 jobs:
   sync:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
@@ -43,123 +44,76 @@ jobs:
           echo "✅ Token retrieved successfully."
           echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
 
-      - name: 🚀 Sync changed notebooks
+      - name: 🚀 Sync notebooks to Microsoft Fabric workspace
         env:
           WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
           TOKEN: ${{ env.ACCESS_TOKEN }}
         run: |
-          set -euxo pipefail
+          set -ex
           API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
-          NOTEBOOK_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/notebooks"
-
-          # Get only changed files in this push
-          CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.event.after }})
-          echo "Changed files in this push:"
-          echo "$CHANGED"
-          
-          # Filter to only .ipynb under deploy/notebook
-          FILES=$(echo "$CHANGED" | grep '^deploy/notebook/.*\.ipynb$' || true)
-          echo "Notebook files changed: $FILES"
-          
+          FILES=$(git ls-files | grep '^deploy/notebook/.*\.ipynb$')
+          echo "Files to process: $FILES"
           if [ -z "$FILES" ]; then
-            echo "No notebook files changed—nothing to do."
+            echo "No notebook files detected to upload, exiting."
             exit 0
           fi
-          
-          # Optionally, fetch existing items list (display names + ids)
-          EXISTING_JSON=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE")
-          
+
           for FILE in $FILES; do
-            echo "Processing $FILE..."
+            echo "📘 Processing $FILE..."
             DISPLAY_NAME=$(basename "$FILE" .ipynb)
             FILE_NAME="${DISPLAY_NAME}.ipynb"
             CONTENT_BASE64=$(base64 -w 0 "$FILE")
 
-            # find existing item id if exists
-            EXISTING_ID=$(echo "$EXISTING_JSON" | jq -r --arg dn "$DISPLAY_NAME" '.items[] | select(.displayName == $dn) | .id // empty')
-            
-            if [ -z "$EXISTING_ID" ]; then
-              echo "Notebook '$DISPLAY_NAME' not found in Fabric — creating..."
-              PAYLOAD=$(jq -n \
-                --arg dn "$DISPLAY_NAME" \
-                --arg fn "$FILE_NAME" \
-                --arg payload "$CONTENT_BASE64" \
-                '{
-                  displayName: $dn,
-                  type: "Notebook",
-                  definition: {
-                    format: "ipynb",
-                    parts: [
-                      {
-                        path: $fn,
-                        payload: $payload,
-                        payloadType: "InlineBase64"
-                      }
-                    ]
-                  }
-                }')
-              RESP=$(curl -s -w "\n%{http_code}" -X POST \
+            echo "🔍 Checking if notebook '$DISPLAY_NAME' exists..."
+            EXISTING_NOTEBOOK=$(curl -s -X GET "$API_BASE?filter=displayName eq '$DISPLAY_NAME' and type eq 'Notebook'" \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Content-Type: application/json")
+
+            ITEM_ID=$(echo "$EXISTING_NOTEBOOK" | jq -r '.value[0].id // empty')
+
+            PAYLOAD=$(jq -n \
+              --arg dn "$DISPLAY_NAME" \
+              --arg fn "$FILE_NAME" \
+              --arg payload "$CONTENT_BASE64" \
+              '{
+                displayName: $dn,
+                type: "Notebook",
+                definition: {
+                  format: "ipynb",
+                  parts: [
+                    {
+                      path: $fn,
+                      payload: $payload,
+                      payloadType: "InlineBase64"
+                    }
+                  ]
+                }
+              }')
+
+            if [ -n "$ITEM_ID" ]; then
+              echo "🔁 Notebook exists. Updating ID: $ITEM_ID"
+              RESPONSE=$(curl -s -w "\n%{http_code}" -X PATCH \
+                -H "Authorization: Bearer $TOKEN" \
+                -H "Content-Type: application/json" \
+                --data "$PAYLOAD" \
+                "$API_BASE/$ITEM_ID")
+            else
+              echo "🆕 Notebook does not exist. Creating new notebook: $DISPLAY_NAME"
+              RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
                 -H "Authorization: Bearer $TOKEN" \
                 -H "Content-Type: application/json" \
                 --data "$PAYLOAD" \
                 "$API_BASE")
-              HTTP_CODE=$(echo "$RESP" | tail -n1)
-              BODY=$(echo "$RESP" | sed '$d')
-              echo "HTTP status: $HTTP_CODE, Body: $BODY"
-              if [[ "$HTTP_CODE" =~ ^2 ]]; then
-                echo "✅ Created notebook: $DISPLAY_NAME"
-              else
-                echo "❌ Failed to create: $DISPLAY_NAME"
-                exit 1
-              fi
-
-            else
-              echo "Notebook '$DISPLAY_NAME' exists (ID = $EXISTING_ID). Checking if update needed..."
-              
-              # get existing notebook definition content
-              DEF_RESP=$(curl -s -X POST \
-                -H "Authorization: Bearer $TOKEN" \
-                -H "Content-Type: application/json" \
-                --data '{"format":"ipynb"}' \
-                "$API_BASE/$EXISTING_ID/GetDefinition?format=ipynb")
-              # extract existing payload
-              EXISTING_PAYLOAD=$(echo "$DEF_RESP" | jq -r '.definition.parts[0].payload // empty')
-              
-              if [ "$EXISTING_PAYLOAD" = "$CONTENT_BASE64" ]; then
-                echo "No changes detected in '$DISPLAY_NAME'. Skipping update."
-              else
-                echo "Changes detected in '$DISPLAY_NAME'. Updating..."
-                UPDATE_PAYLOAD=$(jq -n \
-                  --arg fn "$FILE_NAME" \
-                  --arg payload "$CONTENT_BASE64" \
-                  '{
-                    definition: {
-                      format: "ipynb",
-                      parts: [
-                        {
-                          path: $fn,
-                          payload: $payload,
-                          payloadType: "InlineBase64"
-                        }
-                      ]
-                    }
-                  }')
-                # call updateDefinition API
-                RESP2=$(curl -s -w "\n%{http_code}" -X POST \
-                  -H "Authorization: Bearer $TOKEN" \
-                  -H "Content-Type: application/json" \
-                  --data "$UPDATE_PAYLOAD" \
-                  "$NOTEBOOK_BASE/$EXISTING_ID/updateDefinition?updateMetadata=true")
-                HTTP2=$(echo "$RESP2" | tail -n1)
-                BODY2=$(echo "$RESP2" | sed '$d')
-                echo "HTTP status: $HTTP2, Body: $BODY2"
-                if [[ "$HTTP2" =~ ^2 ]]; then
-                  echo "✅ Updated notebook: $DISPLAY_NAME"
-                else
-                  echo "❌ Failed to update: $DISPLAY_NAME"
-                  exit 1
-                fi
-              fi
             fi
 
+            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+            BODY_RESP=$(echo "$RESPONSE" | sed '$d')
+            echo "HTTP status: $HTTP_CODE"
+            echo "Response body: $BODY_RESP"
+            if [[ "$HTTP_CODE" =~ ^2 ]]; then
+              echo "✅ Successfully synced $FILE"
+            else
+              echo "❌ Failed to sync $FILE"
+              exit 1
+            fi
           done
