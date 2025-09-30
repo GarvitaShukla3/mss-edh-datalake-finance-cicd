@@ -18,13 +18,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 📦 Checkout repository
+      - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: 🛠️ Install dependencies
+      - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y jq curl
 
-      - name: 🔐 Get Microsoft Fabric Access Token
+      - name: Get Microsoft Fabric Access Token
         id: get_token
         run: |
           RESPONSE=$(curl -s -X POST -H "Content-Type: application/x-www-form-urlencoded" \
@@ -41,7 +41,7 @@ jobs:
           fi
           echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
 
-      - name: 🚀 Sync notebooks to Microsoft Fabric workspace
+      - name: Sync notebooks to Microsoft Fabric workspace
         env:
           WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
           TOKEN: ${{ env.ACCESS_TOKEN }}
@@ -50,12 +50,12 @@ jobs:
           API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
           FILES=$(git ls-files | grep '^deploy/notebook/.*\.ipynb$')
           if [ -z "$FILES" ]; then
-            echo "📭 No notebook files to sync."
+            echo "No notebook files to sync."
             exit 0
           fi
 
           for FILE in $FILES; do
-            echo "🔄 Processing: $FILE"
+            echo "Processing: $FILE"
             DISPLAY_NAME=$(basename "$FILE" .ipynb)
             FILE_NAME="${DISPLAY_NAME}.ipynb"
             CONTENT_BASE64=$(base64 -w 0 "$FILE")
@@ -101,14 +101,14 @@ jobs:
               }')
 
             if [ -n "$EXISTING_ITEM_ID" ]; then
-              echo "📄 Notebook exists (ID: $EXISTING_ITEM_ID), updating content..."
+              echo "Notebook exists (ID: $EXISTING_ITEM_ID), updating content..."
               RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
                 -H "Authorization: Bearer $TOKEN" \
                 -H "Content-Type: application/json" \
                 --data "$DEFINITION_WRAPPED_PAYLOAD" \
                 "$API_BASE/$EXISTING_ITEM_ID/updateDefinition")
             else
-              echo "🆕 Notebook does not exist, creating new notebook..."
+              echo "Notebook does not exist, creating new notebook..."
               RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
                 -H "Authorization: Bearer $TOKEN" \
                 -H "Content-Type: application/json" \
@@ -118,13 +118,13 @@ jobs:
 
             HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
             BODY_RESP=$(echo "$RESPONSE" | sed '$d')
-            echo "🔎 HTTP status: $HTTP_CODE"
-            echo "📬 Response body: $BODY_RESP"
+            echo "HTTP status: $HTTP_CODE"
+            echo "Response body: $BODY_RESP"
 
             if [[ "$HTTP_CODE" =~ ^2 ]]; then
-              echo "✅ Successfully processed: $FILE"
+              echo "Successfully processed: $FILE"
             else
-              echo "❌ Failed to process: $FILE"
+              echo "Failed to process: $FILE"
               exit 1
             fi
           done
