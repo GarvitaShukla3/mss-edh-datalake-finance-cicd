@@ -91,7 +91,7 @@ jobs:
 
             if [ -n "$EXISTING_ITEM_ID" ]; then
               echo "Notebook exists with ID $EXISTING_ITEM_ID, updating..."
-              RESPONSE=$(curl -s -w "\n%{http_code}" -X PATCH \
+              RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT \
                 -H "Authorization: Bearer $TOKEN" \
                 -H "Content-Type: application/json" \
                 --data "$PAYLOAD" \
