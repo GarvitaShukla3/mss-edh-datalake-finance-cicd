@@ -122,7 +122,7 @@ jobs:
             echo "Response body: $BODY_RESP"
 
             if [[ "$HTTP_CODE" =~ ^2 ]]; then
-              echo "Successfully processed: $FILE"
+              echo "✅ Successfully processed: $FILE"
             else
               echo "Failed to process: $FILE"
               exit 1
