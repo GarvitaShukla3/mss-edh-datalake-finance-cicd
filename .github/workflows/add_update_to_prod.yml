@@ -53,7 +53,7 @@ jobs:
         run: |
           set -ex
           API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
-          FILES=$(git ls-files 'deploy/notebook/**/*.ipynb')
+          FILES=$(git ls-files | grep '^deploy/notebook/.*\.ipynb$')
           echo "Files to process: $FILES"
           if [ -z "$FILES" ]; then
             echo "No notebook files detected to upload, exiting."
