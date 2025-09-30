@@ -66,9 +66,9 @@ jobs:
             FILE_NAME="${DISPLAY_NAME}.ipynb"
             CONTENT_BASE64=$(base64 -w 0 "$FILE")
             
-            # Check if the notebook already exists by querying workspace items
-            EXISTING_ITEM_ID=$(curl -s -H "Authorization: Bearer $TOKEN" \
-              "$API_BASE?filter=displayName eq '$DISPLAY_NAME' and type eq 'Notebook'" | jq -r '.value[0].id // empty')
+            # Fetch all items and filter locally for displayName and type
+            EXISTING_ITEM_ID=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
+              jq -r --arg dn "$DISPLAY_NAME" '.value[] | select(.displayName == $dn and .type == "Notebook") | .id' | head -n 1)
 
             PAYLOAD=$(jq -n \
               --arg dn "$DISPLAY_NAME" \
