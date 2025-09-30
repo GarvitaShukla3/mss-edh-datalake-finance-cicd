@@ -29,7 +29,7 @@ jobs:
           # Call token endpoint
           RESPONSE=$(curl -s -X POST -H "Content-Type: application/x-www-form-urlencoded" \
             -d "grant_type=client_credentials&client_id=${{ env.CLIENT_ID }}&client_secret=${{ env.CLIENT_SECRET }}&scope=https://api.fabric.microsoft.com/.default" \
-            "https://login.microsoftonline.com/common/oauth2/v2.0/token")
+            "https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token")
 
           echo "🔁 Raw Response:"
           echo "$RESPONSE"
