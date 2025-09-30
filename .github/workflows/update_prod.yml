@@ -21,7 +21,7 @@ jobs:
       - name: Checkout repo with full history
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # Fetch full git history, so all commits are accessible
+          fetch-depth: 0  # Important to fetch full history for git commands if needed
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y jq curl
@@ -51,10 +51,13 @@ jobs:
           WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
           TOKEN: ${{ env.ACCESS_TOKEN }}
         run: |
-          set -ex
+          set -euo pipefail
+
           API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
-          FILES=$(git ls-files | grep '^deploy/notebook/.*\.ipynb$')
+          FILES=$(git ls-files | grep '^deploy/notebook/.*\.ipynb$' || true)
+
           echo "Files to process: $FILES"
+
           if [ -z "$FILES" ]; then
             echo "No notebook files detected to upload, exiting."
             exit 0
@@ -66,12 +69,26 @@ jobs:
             FILE_NAME="${DISPLAY_NAME}.ipynb"
             CONTENT_BASE64=$(base64 -w 0 "$FILE")
 
-            echo "🔍 Checking if notebook '$DISPLAY_NAME' exists..."
-            EXISTING_NOTEBOOK=$(curl -s -X GET "$API_BASE?filter=displayName eq '$DISPLAY_NAME' and type eq 'Notebook'" \
+            # URL-encode filter query for safety
+            FILTER_QUERY=$(printf "displayName eq '%s' and type eq 'Notebook'" "$DISPLAY_NAME" | jq -sRr @uri)
+
+            echo "🔍 Checking if notebook '$DISPLAY_NAME' exists in workspace..."
+            RESPONSE=$(curl -s -w "\n%{http_code}" -X GET "$API_BASE?filter=$FILTER_QUERY" \
               -H "Authorization: Bearer $TOKEN" \
               -H "Content-Type: application/json")
 
-            ITEM_ID=$(echo "$EXISTING_NOTEBOOK" | jq -r '.value[0].id // empty')
+            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+            BODY=$(echo "$RESPONSE" | sed '$d')
+
+            echo "HTTP status: $HTTP_CODE"
+            echo "Response: $BODY"
+
+            if [ "$HTTP_CODE" != "200" ]; then
+              echo "❌ Failed to query notebook existence. Exiting."
+              exit 1
+            fi
+
+            ITEM_ID=$(echo "$BODY" | jq -r '.value[0].id // empty')
 
             PAYLOAD=$(jq -n \
               --arg dn "$DISPLAY_NAME" \
@@ -93,29 +110,42 @@ jobs:
               }')
 
             if [ -n "$ITEM_ID" ]; then
-              echo "🔁 Notebook exists. Updating ID: $ITEM_ID"
-              RESPONSE=$(curl -s -w "\n%{http_code}" -X PATCH \
+              echo "🔁 Notebook exists. Updating notebook with ID $ITEM_ID..."
+              UPD_RESPONSE=$(curl -s -w "\n%{http_code}" -X PATCH "$API_BASE/$ITEM_ID" \
                 -H "Authorization: Bearer $TOKEN" \
                 -H "Content-Type: application/json" \
-                --data "$PAYLOAD" \
-                "$API_BASE/$ITEM_ID")
-            else
-              echo "🆕 Notebook does not exist. Creating new notebook: $DISPLAY_NAME"
-              RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-                -H "Authorization: Bearer $TOKEN" \
-                -H "Content-Type: application/json" \
-                --data "$PAYLOAD" \
-                "$API_BASE")
-            fi
+                --data "$PAYLOAD")
 
-            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-            BODY_RESP=$(echo "$RESPONSE" | sed '$d')
-            echo "HTTP status: $HTTP_CODE"
-            echo "Response body: $BODY_RESP"
-            if [[ "$HTTP_CODE" =~ ^2 ]]; then
-              echo "✅ Successfully synced $FILE"
+              UPD_HTTP_CODE=$(echo "$UPD_RESPONSE" | tail -n1)
+              UPD_BODY=$(echo "$UPD_RESPONSE" | sed '$d')
+
+              echo "Update HTTP status: $UPD_HTTP_CODE"
+              echo "Update response: $UPD_BODY"
+
+              if [[ "$UPD_HTTP_CODE" =~ ^2 ]]; then
+                echo "✅ Successfully updated $FILE"
+              else
+                echo "❌ Failed to update $FILE"
+                exit 1
+              fi
             else
-              echo "❌ Failed to sync $FILE"
-              exit 1
+              echo "🆕 Notebook does not exist. Creating new notebook..."
+              CRT_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$API_BASE" \
+                -H "Authorization: Bearer $TOKEN" \
+                -H "Content-Type: application/json" \
+                --data "$PAYLOAD")
+
+              CRT_HTTP_CODE=$(echo "$CRT_RESPONSE" | tail -n1)
+              CRT_BODY=$(echo "$CRT_RESPONSE" | sed '$d')
+
+              echo "Create HTTP status: $CRT_HTTP_CODE"
+              echo "Create response: $CRT_BODY"
+
+              if [[ "$CRT_HTTP_CODE" =~ ^2 ]]; then
+                echo "✅ Successfully created $FILE"
+              else
+                echo "❌ Failed to create $FILE"
+                exit 1
+              fi
             fi
           done
