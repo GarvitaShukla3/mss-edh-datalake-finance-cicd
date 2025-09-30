@@ -21,7 +21,7 @@ jobs:
       - name: Checkout repo with full history
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # Important to fetch full history for git commands if needed
+          fetch-depth: 0  # Fetch full history
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y jq curl
@@ -88,7 +88,8 @@ jobs:
               exit 1
             fi
 
-            ITEM_ID=$(echo "$BODY" | jq -r '.value[0].id // empty')
+            # Extract the ID of the existing notebook with exact type 'Notebook'
+            ITEM_ID=$(echo "$BODY" | jq -r '.value[] | select(.type == "Notebook") | .id' | head -n1 || true)
 
             PAYLOAD=$(jq -n \
               --arg dn "$DISPLAY_NAME" \
