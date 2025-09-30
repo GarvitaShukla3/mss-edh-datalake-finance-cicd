@@ -1,4 +1,4 @@
-name: Sync Repo to Microsoft Fabric Workspace
+name: Update to Microsoft Fabric Workspace
 
 on:
   push:
