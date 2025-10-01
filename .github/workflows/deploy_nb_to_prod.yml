@@ -2,10 +2,10 @@ name: Deploy notebook garvita
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - deploy/notebook/**/*.ipynb
+    # branches:
+    #   - main
+    # paths:
+    #   - deploy/notebook/**/*.ipynb
 
 jobs:
   deploy_notebooks:
