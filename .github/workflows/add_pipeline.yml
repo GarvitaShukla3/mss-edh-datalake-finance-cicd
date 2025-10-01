@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y jq curl coreutils
+        run: sudo apt-get update && sudo apt-get install -y jq curl
 
       - name: Get Microsoft Fabric Access Token
         id: get_token
@@ -50,6 +50,7 @@ jobs:
 
           API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
 
+          # Find all pipeline folders (one level under deploy/pipeline)
           PIPELINE_FOLDERS=$(find deploy/pipeline -mindepth 1 -maxdepth 1 -type d)
 
           if [ -z "$PIPELINE_FOLDERS" ]; then
@@ -59,70 +60,63 @@ jobs:
 
           for PIPELINE_FOLDER in $PIPELINE_FOLDERS; do
             PIPELINE_NAME=$(basename "$PIPELINE_FOLDER")
+
+            MANIFEST_FILE="$PIPELINE_FOLDER/manifest.json"
             PIPELINE_FILE="$PIPELINE_FOLDER/${PIPELINE_NAME}.json"
 
-            if [ ! -f "$PIPELINE_FILE" ]; then
-              echo "⚠️ Skipping $PIPELINE_NAME - missing JSON file"
+            if [ ! -f "$MANIFEST_FILE" ] || [ ! -f "$PIPELINE_FILE" ]; then
+              echo "⚠️ Skipping $PIPELINE_NAME - missing manifest.json or ${PIPELINE_NAME}.json"
               continue
             fi
 
             echo "📦 Processing pipeline: $PIPELINE_NAME"
 
-            # Base64 encode content (single-line)
-            PIPELINE_CONTENT=$(base64 -w 0 "$PIPELINE_FILE")
+            MANIFEST_BASE64=$(base64 -w 0 "$MANIFEST_FILE")
+            PIPELINE_BASE64=$(base64 -w 0 "$PIPELINE_FILE")
 
-            # Create full payload
-            CREATE_PAYLOAD=$(jq -n \
+            FULL_PAYLOAD=$(jq -n \
               --arg dn "$PIPELINE_NAME" \
-              --arg fn "${PIPELINE_NAME}.json" \
-              --arg payload "$PIPELINE_CONTENT" \
+              --arg mf "manifest.json" \
+              --arg pf "${PIPELINE_NAME}.json" \
+              --arg mpayload "$MANIFEST_BASE64" \
+              --arg ppayload "$PIPELINE_BASE64" \
               '{
                 displayName: $dn,
                 type: "DataPipeline",
                 definition: {
+                  format: "json",
                   parts: [
                     {
-                      path: $fn,
-                      payload: $payload,
+                      path: $mf,
+                      payload: $mpayload,
+                      payloadType: "InlineBase64"
+                    },
+                    {
+                      path: $pf,
+                      payload: $ppayload,
                       payloadType: "InlineBase64"
                     }
                   ]
                 }
               }')
 
-            # Create update-only payload
-            UPDATE_PAYLOAD=$(jq -n \
-              --arg fn "${PIPELINE_NAME}.json" \
-              --arg payload "$PIPELINE_CONTENT" \
-              '{
-                definition: {
-                  parts: [
-                    {
-                      path: $fn,
-                      payload: $payload,
-                      payloadType: "InlineBase64"
-                    }
-                  ]
-                }
-              }')
-
-            # Check if it exists
+            # Check if pipeline already exists
             EXISTING_ITEM_ID=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
               jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName == $dn and .type == "DataPipeline") | .id' | head -n 1)
 
             if [ -n "$EXISTING_ITEM_ID" ]; then
-              echo "🔄 Updating existing pipeline $PIPELINE_NAME..."
+              echo "🔄 Updating existing pipeline $PIPELINE_NAME (ID: $EXISTING_ITEM_ID)..."
               RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
                 -H "Authorization: Bearer $TOKEN" \
                 -H "Content-Type: application/json" \
-                --data "$UPDATE_PAYLOAD" \
+                --data "$FULL_PAYLOAD" \
                 "$API_BASE/$EXISTING_ITEM_ID/updateDefinition")
             else
               echo "🆕 Creating new pipeline $PIPELINE_NAME..."
               RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
                 -H "Authorization: Bearer $TOKEN" \
                 -H "Content-Type: application/json" \
-                --data "$CREATE_PAYLOAD" \
+                --data "$FULL_PAYLOAD" \
                 "$API_BASE")
             fi
 
