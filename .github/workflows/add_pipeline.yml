@@ -73,14 +73,14 @@ jobs:
               '{
                 Type: "Pipeline",
                 createItemRequest: {
-                  displayName: $dn,
-                  definition: {
-                    format: "json",
-                    parts: [
+                  DisplayName: $dn,
+                  Definition: {
+                    Format: "json",
+                    Parts: [
                       {
-                        path: $fn,
-                        payload: ($payload_obj | tostring),
-                        payloadType: "Inline"
+                        Path: $fn,
+                        Payload: ($payload_obj | tostring),
+                        PayloadType: "Inline"
                       }
                     ]
                   }
@@ -91,13 +91,13 @@ jobs:
               --arg fn "$PIPELINE_NAME.json" \
               --argjson payload_obj "$(jq '.' "$PIPELINE_FILE")" \
               '{
-                definition: {
-                  format: "json",
-                  parts: [
+                Definition: {
+                  Format: "json",
+                  Parts: [
                     {
-                      path: $fn,
-                      payload: ($payload_obj | tostring),
-                      payloadType: "Inline"
+                      Path: $fn,
+                      Payload: ($payload_obj | tostring),
+                      PayloadType: "Inline"
                     }
                   ]
                 }
