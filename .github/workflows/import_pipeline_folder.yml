@@ -1,5 +1,4 @@
-name: Import Pipelines
-
+name: Import Pipelines 
 on:
   workflow_dispatch:
   push:
@@ -10,47 +9,66 @@ env:
   TENANT_ID: ${{ secrets.TENANT_ID }}
   CLIENT_ID: ${{ secrets.CLIENT_ID }}
   CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
-  WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
+  FABRIC_WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
 
 jobs:
   import-pipelines:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v3
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y jq curl npm
+        run: sudo apt-get update && sudo apt-get install -y jq curl
 
-      - name: Install Microsoft Fabric CLI
-        run: npm install -g @microsoft/fabric-cli
-
-      - name: Get Microsoft Fabric Access Token
+      - name: Get access token
         id: get_token
         run: |
-          RESPONSE=$(curl -s -X POST -H "Content-Type: application/x-www-form-urlencoded" \
+          response=$(curl -s -X POST -H "Content-Type: application/x-www-form-urlencoded" \
             -d "grant_type=client_credentials" \
             -d "client_id=${{ env.CLIENT_ID }}" \
             -d "client_secret=${{ env.CLIENT_SECRET }}" \
             -d "scope=https://api.fabric.microsoft.com/.default" \
             "https://login.microsoftonline.com/${{ env.TENANT_ID }}/oauth2/v2.0/token")
 
-          ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
-          if [[ -z "$ACCESS_TOKEN" || "$ACCESS_TOKEN" == "null" ]]; then
-            echo "❌ Failed to retrieve access token."
+          token=$(echo "$response" | jq -r '.access_token')
+          if [[ -z "$token" || "$token" == "null" ]]; then
+            echo "Failed to get access token"
             exit 1
           fi
+          echo "TOKEN=$token" >> $GITHUB_ENV
 
-          echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
-
-      - name: Import all pipelines
-        env:
-          ACCESS_TOKEN: ${{ env.ACCESS_TOKEN }}
-          WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
+      - name: Import pipelines
         run: |
           set -e
-          for folder in deploy/pipeline/*/; do
-            echo "Importing pipeline from folder $folder"
-            fabric pipeline import --workspace $WORKSPACE_ID --token $ACCESS_TOKEN --path "$folder"
+          BASE_DIR="deploy/pipeline"
+
+          for pipeline_dir in $(find "$BASE_DIR" -mindepth 1 -maxdepth 1 -type d); do
+            echo "Importing pipeline from $pipeline_dir"
+
+            # Find JSON files inside pipeline folder (assuming exactly 2)
+            json_files=($(find "$pipeline_dir" -maxdepth 1 -name '*.json'))
+            if [ "${#json_files[@]}" -ne 2 ]; then
+              echo "Expected 2 JSON files inside $pipeline_dir, found ${#json_files[@]}"
+              exit 1
+            fi
+
+            for json_file in "${json_files[@]}"; do
+              echo "Uploading $json_file"
+
+              # Assuming the API to import pipelines is like this (replace with actual Fabric API endpoint)
+              response=$(curl -s -o response.json -w "%{http_code}" -X POST \
+                -H "Authorization: Bearer $TOKEN" \
+                -H "Content-Type: application/json" \
+                -d @"$json_file" \
+                "https://api.fabric.microsoft.com/workspaces/${{ env.FABRIC_WORKSPACE_ID }}/pipelines/import")
+
+              if [ "$response" -ne 200 ]; then
+                echo "Failed to import $json_file with status code $response"
+                cat response.json
+                exit 1
+              fi
+
+              echo "Successfully imported $json_file"
+            done
           done
