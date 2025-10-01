@@ -66,14 +66,11 @@ jobs:
 
             echo "📦 Processing pipeline: $PIPELINE_NAME"
 
-            # Prepare compact JSON string of pipeline file for payload
-            PAYLOAD_STR=$(jq -c '.' "$PIPELINE_FILE")
-
-            # Prepare full payload with createItemRequest wrapper for creation
+            # Prepare payload JSON using jq with argjson and tostring
             FULL_PAYLOAD=$(jq -n \
               --arg dn "$PIPELINE_NAME" \
               --arg fn "$PIPELINE_NAME.json" \
-              --arg payload_str "$PAYLOAD_STR" \
+              --argjson payload_obj "$(jq '.' "$PIPELINE_FILE")" \
               '{
                 createItemRequest: {
                   displayName: $dn,
@@ -83,7 +80,7 @@ jobs:
                     parts: [
                       {
                         path: $fn,
-                        payload: $payload_str,
+                        payload: ($payload_obj | tostring),
                         payloadType: "Inline"
                       }
                     ]
@@ -91,22 +88,24 @@ jobs:
                 }
               }')
 
-            # Prepare update payload (only definition)
             DEFINITION_ONLY_PAYLOAD=$(jq -n \
               --arg fn "$PIPELINE_NAME.json" \
-              --arg payload_str "$PAYLOAD_STR" \
+              --argjson payload_obj "$(jq '.' "$PIPELINE_FILE")" \
               '{
                 definition: {
                   format: "json",
                   parts: [
                     {
                       path: $fn,
-                      payload: $payload_str,
+                      payload: ($payload_obj | tostring),
                       payloadType: "Inline"
                     }
                   ]
                 }
               }')
+
+            echo "Payload for creation/update:"
+            echo "$FULL_PAYLOAD" | jq .
 
             # Check if pipeline already exists
             EXISTING_ITEM_ID=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
