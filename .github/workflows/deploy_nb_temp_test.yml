@@ -1,10 +1,10 @@
 name: Deploy Jupyter Notebook to QA-Finance Workspaces after Merge
 on:
   push:
-    branches:
-      - main
-    paths:
-      - deploy/notebook/**/*.ipynb
+    # branches:
+    #   - main
+    # paths:
+    #   - deploy/notebook/**/*.ipynb
 
 jobs:
   deploy_to_uat_after_merge:
