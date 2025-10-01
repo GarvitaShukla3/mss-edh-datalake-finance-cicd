@@ -5,7 +5,6 @@ on:
   push:
     paths:
       - 'deploy/pipeline/**/manifest.json'
-      - 'deploy/pipeline/**/*.json'
 
 env:
   TENANT_ID: ${{ secrets.TENANT_ID }}
@@ -61,76 +60,33 @@ jobs:
             PIPELINE_NAME=$(basename "$PIPELINE_FOLDER")
 
             MANIFEST_FILE="$PIPELINE_FOLDER/manifest.json"
-            PIPELINE_FILE="$PIPELINE_FOLDER/${PIPELINE_NAME}.json"
 
-            if [ ! -f "$PIPELINE_FILE" ]; then
-              echo "⚠️ Skipping $PIPELINE_NAME - pipeline json not found at $PIPELINE_FILE"
+            if [ ! -f "$MANIFEST_FILE" ]; then
+              echo "⚠️ Skipping $PIPELINE_NAME - manifest.json not found at $MANIFEST_FILE"
               continue
             fi
 
             echo "📦 Processing pipeline: $PIPELINE_NAME"
 
-            # Read manifest content if exists, else null
-            if [ -f "$MANIFEST_FILE" ]; then
-              MANIFEST_JSON=$(cat "$MANIFEST_FILE" | jq -c '.')
-            else
-              MANIFEST_JSON=null
-            fi
+            # Read manifest content (full pipeline definition)
+            MANIFEST_JSON=$(cat "$MANIFEST_FILE" | jq -c '.')
 
-            # Read entire pipeline JSON file (not just resources[0])
-            PIPELINE_JSON=$(cat "$PIPELINE_FILE" | jq -c '.')
-
-            # Prepare JSON payload with manifest.json and full pipeline json
+            # Prepare full payload using only manifest.json as definition
             FULL_PAYLOAD=$(jq -n \
               --arg dn "$PIPELINE_NAME" \
               --argjson manifest_obj "$MANIFEST_JSON" \
-              --arg fn_manifest "manifest.json" \
-              --argjson pipeline_obj "$PIPELINE_JSON" \
-              --arg fn_pipeline "${PIPELINE_NAME}.json" \
               '{
                 displayName: $dn,
                 type: "Pipeline",
                 createItemRequest: {
-                  definition: {
-                    format: "json",
-                    parts: [
-                      {
-                        path: $fn_manifest,
-                        payload: $manifest_obj,
-                        payloadType: "Json"
-                      },
-                      {
-                        path: $fn_pipeline,
-                        payload: $pipeline_obj,
-                        payloadType: "Json"
-                      }
-                    ]
-                  }
+                  definition: $manifest_obj
                 }
               }')
 
-            # Prepare update payload similarly (without displayName/type/createItemRequest)
             DEFINITION_ONLY_PAYLOAD=$(jq -n \
               --argjson manifest_obj "$MANIFEST_JSON" \
-              --arg fn_manifest "manifest.json" \
-              --argjson pipeline_obj "$PIPELINE_JSON" \
-              --arg fn_pipeline "${PIPELINE_NAME}.json" \
               '{
-                definition: {
-                  format: "json",
-                  parts: [
-                    {
-                      path: $fn_manifest,
-                      payload: $manifest_obj,
-                      payloadType: "Json"
-                    },
-                    {
-                      path: $fn_pipeline,
-                      payload: $pipeline_obj,
-                      payloadType: "Json"
-                    }
-                  ]
-                }
+                definition: $manifest_obj
               }')
 
             # Check if pipeline exists
