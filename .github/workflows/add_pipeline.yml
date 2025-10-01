@@ -1,11 +1,10 @@
-name: Sync Pipelines to Microsoft Fabric Workspace
+name: Import Pipelines to Microsoft Fabric Workspace
 
 on:
-  workflow_dispatch:
   push:
-    branches: [main]
     paths:
-      - 'deploy/pipeline/**'
+      - 'deploy/pipeline/**/manifest.json'
+      - 'deploy/pipeline/**/*.json'
 
 env:
   TENANT_ID: ${{ secrets.TENANT_ID }}
@@ -14,7 +13,7 @@ env:
   WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
 
 jobs:
-  sync-pipelines:
+  import-pipelines:
     runs-on: ubuntu-latest
 
     steps:
@@ -41,69 +40,75 @@ jobs:
           fi
           echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
 
-      - name: Sync pipelines to Microsoft Fabric
+      - name: Import pipelines into Microsoft Fabric workspace
         env:
-          WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
           TOKEN: ${{ env.ACCESS_TOKEN }}
+          WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
         run: |
           set -e
+
           API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
 
+          # Find all pipeline folders (each contains manifest.json + <pipeline_name>.json)
           PIPELINE_FOLDERS=$(find deploy/pipeline -mindepth 1 -maxdepth 1 -type d)
+
           if [ -z "$PIPELINE_FOLDERS" ]; then
             echo "No pipeline folders found."
             exit 0
           fi
 
-          for DIR in $PIPELINE_FOLDERS; do
-            PIPELINE_NAME=$(basename "$DIR")
-            PIPELINE_FILE="$DIR/$PIPELINE_NAME.json"
+          for PIPELINE_FOLDER in $PIPELINE_FOLDERS; do
+            PIPELINE_NAME=$(basename "$PIPELINE_FOLDER")
+
+            MANIFEST_FILE="$PIPELINE_FOLDER/manifest.json"
+            PIPELINE_FILE="$PIPELINE_FOLDER/${PIPELINE_NAME}.json"
 
             if [ ! -f "$PIPELINE_FILE" ]; then
-              echo "❌ Skipping $DIR - missing $PIPELINE_NAME.json"
+              echo "⚠️ Skipping $PIPELINE_NAME - pipeline json not found at $PIPELINE_FILE"
               continue
             fi
 
             echo "📦 Processing pipeline: $PIPELINE_NAME"
 
+            # Prepare JSON payloads using jq
             FULL_PAYLOAD=$(jq -n \
               --arg dn "$PIPELINE_NAME" \
-              --arg fn "$PIPELINE_NAME.json" \
+              --arg fn "${PIPELINE_NAME}.json" \
               --argjson payload_obj "$(jq '.' "$PIPELINE_FILE")" \
               '{
-                DisplayName: $dn,
-                Type: "Pipeline",
-                Definition: {
-                  Format: "json",
-                  Parts: [
-                    {
-                      Path: $fn,
-                      Payload: ($payload_obj | tostring),
-                      PayloadType: "Inline"
-                    }
-                  ]
+                createItemRequest: {
+                  displayName: $dn,
+                  type: "Pipeline",
+                  definition: {
+                    format: "json",
+                    parts: [
+                      {
+                        path: $fn,
+                        payload: ($payload_obj | tostring),
+                        payloadType: "Inline"
+                      }
+                    ]
+                  }
                 }
               }')
 
             DEFINITION_ONLY_PAYLOAD=$(jq -n \
-              --arg fn "$PIPELINE_NAME.json" \
+              --arg fn "${PIPELINE_NAME}.json" \
               --argjson payload_obj "$(jq '.' "$PIPELINE_FILE")" \
               '{
-                Definition: {
-                  Format: "json",
-                  Parts: [
+                definition: {
+                  format: "json",
+                  parts: [
                     {
-                      Path: $fn,
-                      Payload: ($payload_obj | tostring),
-                      PayloadType: "Inline"
+                      path: $fn,
+                      payload: ($payload_obj | tostring),
+                      payloadType: "Inline"
                     }
                   ]
                 }
               }')
 
-            echo "Payload for creation/update:"
-            echo "$FULL_PAYLOAD" | jq .
-
+            # Check if pipeline exists
             EXISTING_ITEM_ID=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
               jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n 1)
 
@@ -125,6 +130,7 @@ jobs:
 
             HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
             BODY_RESP=$(echo "$RESPONSE" | sed '$d')
+
             echo "Response code: $HTTP_CODE"
             echo "Response body: $BODY_RESP"
 
