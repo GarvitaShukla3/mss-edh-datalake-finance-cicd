@@ -77,7 +77,7 @@ jobs:
               '{
                 createItemRequest: {
                   displayName: $dn,
-                  type: "Pipeline",
+                  Type: "Pipeline",
                   definition: {
                     format: "json",
                     parts: [
