@@ -50,7 +50,6 @@ jobs:
 
           API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
 
-          # Find all pipeline folders
           PIPELINE_FOLDERS=$(find deploy/pipeline -mindepth 1 -maxdepth 1 -type d)
 
           if [ -z "$PIPELINE_FOLDERS" ]; then
@@ -60,30 +59,27 @@ jobs:
 
           for PIPELINE_FOLDER in $PIPELINE_FOLDERS; do
             PIPELINE_NAME=$(basename "$PIPELINE_FOLDER")
-
-            MANIFEST_FILE="$PIPELINE_FOLDER/manifest.json"
             PIPELINE_FILE="$PIPELINE_FOLDER/${PIPELINE_NAME}.json"
 
             if [ ! -f "$PIPELINE_FILE" ]; then
-              echo "⚠️ Skipping $PIPELINE_NAME - pipeline JSON not found at $PIPELINE_FILE"
+              echo "⚠️ Skipping $PIPELINE_NAME - missing JSON file"
               continue
             fi
 
             echo "📦 Processing pipeline: $PIPELINE_NAME"
 
-            # Base64 encode the pipeline content (no line breaks)
+            # Base64 encode content (single-line)
             PIPELINE_CONTENT=$(base64 -w 0 "$PIPELINE_FILE")
 
-            # Build payload for creation
-            FULL_PAYLOAD=$(jq -n \
+            # Create full payload
+            CREATE_PAYLOAD=$(jq -n \
               --arg dn "$PIPELINE_NAME" \
               --arg fn "${PIPELINE_NAME}.json" \
               --arg payload "$PIPELINE_CONTENT" \
               '{
                 displayName: $dn,
-                type: "Pipeline",
+                type: "DataPipeline",
                 definition: {
-                  format: "json",
                   parts: [
                     {
                       path: $fn,
@@ -94,13 +90,12 @@ jobs:
                 }
               }')
 
-            # Build payload for update
-            DEFINITION_ONLY_PAYLOAD=$(jq -n \
+            # Create update-only payload
+            UPDATE_PAYLOAD=$(jq -n \
               --arg fn "${PIPELINE_NAME}.json" \
               --arg payload "$PIPELINE_CONTENT" \
               '{
                 definition: {
-                  format: "json",
                   parts: [
                     {
                       path: $fn,
@@ -111,23 +106,23 @@ jobs:
                 }
               }')
 
-            # Check if pipeline already exists
+            # Check if it exists
             EXISTING_ITEM_ID=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
-              jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n 1)
+              jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName == $dn and .type == "DataPipeline") | .id' | head -n 1)
 
             if [ -n "$EXISTING_ITEM_ID" ]; then
-              echo "🔄 Updating existing pipeline $PIPELINE_NAME (ID: $EXISTING_ITEM_ID)..."
+              echo "🔄 Updating existing pipeline $PIPELINE_NAME..."
               RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
                 -H "Authorization: Bearer $TOKEN" \
                 -H "Content-Type: application/json" \
-                --data "$DEFINITION_ONLY_PAYLOAD" \
+                --data "$UPDATE_PAYLOAD" \
                 "$API_BASE/$EXISTING_ITEM_ID/updateDefinition")
             else
               echo "🆕 Creating new pipeline $PIPELINE_NAME..."
               RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
                 -H "Authorization: Bearer $TOKEN" \
                 -H "Content-Type: application/json" \
-                --data "$FULL_PAYLOAD" \
+                --data "$CREATE_PAYLOAD" \
                 "$API_BASE")
             fi
 
