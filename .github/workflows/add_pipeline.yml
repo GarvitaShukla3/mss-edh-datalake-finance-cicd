@@ -78,9 +78,10 @@ jobs:
               --arg fn "${PIPELINE_NAME}.json" \
               --argjson payload_obj "$(jq '.' "$PIPELINE_FILE")" \
               '{
+                displayName: $dn,
+                type: "Pipeline",
                 createItemRequest: {
-                  displayName: $dn,
-                  type: "Pipeline",
+
                   definition: {
                     format: "json",
                     parts: [
