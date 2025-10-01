@@ -6,7 +6,6 @@ on:
     paths:
       - 'deploy/pipeline/**/manifest.json'
       - 'deploy/pipeline/**/*.json'
-    
 
 env:
   TENANT_ID: ${{ secrets.TENANT_ID }}
@@ -51,7 +50,7 @@ jobs:
 
           API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
 
-          # Find all pipeline folders (each contains manifest.json + <pipeline_name>.json)
+          # Find all pipeline folders (each should have manifest.json + pipeline_name.json)
           PIPELINE_FOLDERS=$(find deploy/pipeline -mindepth 1 -maxdepth 1 -type d)
 
           if [ -z "$PIPELINE_FOLDERS" ]; then
@@ -72,46 +71,47 @@ jobs:
 
             echo "📦 Processing pipeline: $PIPELINE_NAME"
 
-            # Prepare JSON payloads using jq
+            # Read pipeline file content as raw string (escaped JSON)
+            PIPELINE_CONTENT=$(jq -Rs '.' "$PIPELINE_FILE")
+
+            # Prepare full payload for create (or initial update)
             FULL_PAYLOAD=$(jq -n \
               --arg dn "$PIPELINE_NAME" \
               --arg fn "${PIPELINE_NAME}.json" \
-              --argjson payload_obj "$(jq '.' "$PIPELINE_FILE")" \
+              --arg payload "$PIPELINE_CONTENT" \
               '{
                 displayName: $dn,
                 type: "Pipeline",
-                createItemRequest: {
-
-                  definition: {
-                    format: "json",
-                    parts: [
-                      {
-                        path: $fn,
-                        payload: ($payload_obj | tostring),
-                        payloadType: "Inline"
-                      }
-                    ]
-                  }
-                }
-              }')
-
-            DEFINITION_ONLY_PAYLOAD=$(jq -n \
-              --arg fn "${PIPELINE_NAME}.json" \
-              --argjson payload_obj "$(jq '.' "$PIPELINE_FILE")" \
-              '{
                 definition: {
                   format: "json",
                   parts: [
                     {
                       path: $fn,
-                      payload: ($payload_obj | tostring),
+                      payload: $payload,
                       payloadType: "Inline"
                     }
                   ]
                 }
               }')
 
-            # Check if pipeline exists
+            # Payload for updating definition only
+            DEFINITION_ONLY_PAYLOAD=$(jq -n \
+              --arg fn "${PIPELINE_NAME}.json" \
+              --arg payload "$PIPELINE_CONTENT" \
+              '{
+                definition: {
+                  format: "json",
+                  parts: [
+                    {
+                      path: $fn,
+                      payload: $payload,
+                      payloadType: "Inline"
+                    }
+                  ]
+                }
+              }')
+
+            # Check if pipeline exists already
             EXISTING_ITEM_ID=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
               jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n 1)
 
