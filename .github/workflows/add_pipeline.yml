@@ -1,46 +1,3 @@
-name: Sync Pipelines to Microsoft Fabric Workspace
-
-on:
-  workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'deploy/pipeline/**.json'
-
-env:
-  TENANT_ID: ${{ secrets.TENANT_ID }}
-  CLIENT_ID: ${{ secrets.CLIENT_ID }}
-  CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
-  WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
-
-jobs:
-  sync-pipelines:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y jq curl
-
-      - name: Get Microsoft Fabric Access Token
-        id: get_token
-        run: |
-          RESPONSE=$(curl -s -X POST -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "grant_type=client_credentials" \
-            -d "client_id=${{ env.CLIENT_ID }}" \
-            -d "client_secret=${{ env.CLIENT_SECRET }}" \
-            -d "scope=https://api.fabric.microsoft.com/.default" \
-            "https://login.microsoftonline.com/${{ env.TENANT_ID }}/oauth2/v2.0/token")
-
-          ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
-          if [[ "$ACCESS_TOKEN" == "null" || -z "$ACCESS_TOKEN" ]]; then
-            echo "❌ Failed to retrieve access token."
-            exit 1
-          fi
-          echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
-
       - name: Sync pipelines to Microsoft Fabric
         env:
           WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
@@ -66,24 +23,42 @@ jobs:
 
             echo "📦 Processing pipeline: $PIPELINE_NAME"
 
-            # Read raw JSON content (escape quotes and newlines properly for jq)
+            # Read pipeline JSON content
             PIPELINE_JSON=$(jq '.' "$PIPELINE_FILE")
+
+            # Prepare full payload with wrapped parts array
+            FULL_PAYLOAD=$(jq -n --arg dn "$PIPELINE_NAME" --arg fn "$PIPELINE_NAME.json" --argjson payload "$PIPELINE_JSON" '{
+              displayName: $dn,
+              type: "Pipeline",
+              definition: {
+                format: "json",
+                parts: [
+                  {
+                    path: $fn,
+                    payload: $payload,
+                    payloadType: "Inline"
+                  }
+                ]
+              }
+            }')
+
+            # Prepare update payload (only definition)
+            DEFINITION_ONLY_PAYLOAD=$(jq -n --arg fn "$PIPELINE_NAME.json" --argjson payload "$PIPELINE_JSON" '{
+              definition: {
+                format: "json",
+                parts: [
+                  {
+                    path: $fn,
+                    payload: $payload,
+                    payloadType: "Inline"
+                  }
+                ]
+              }
+            }')
 
             # Check if pipeline already exists
             EXISTING_ITEM_ID=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
               jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n 1)
-
-            # Construct JSON payload for creation (displayName + type + definition)
-            FULL_PAYLOAD=$(jq -n --arg dn "$PIPELINE_NAME" --argjson def "$PIPELINE_JSON" '{
-              displayName: $dn,
-              type: "Pipeline",
-              definition: $def
-            }')
-
-            # Construct JSON payload for update (only definition field)
-            DEFINITION_ONLY_PAYLOAD=$(jq -n --argjson def "$PIPELINE_JSON" '{
-              definition: $def
-            }')
 
             if [ -n "$EXISTING_ITEM_ID" ]; then
               echo "🔄 Updating existing pipeline $PIPELINE_NAME (ID: $EXISTING_ITEM_ID)..."
