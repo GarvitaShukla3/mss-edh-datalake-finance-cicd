@@ -70,22 +70,23 @@ jobs:
 
             echo "📦 Processing pipeline: $PIPELINE_NAME"
 
-            # Extract inner pipeline resource from pipeline json (resources[0])
-            PIPELINE_RESOURCE_JSON=$(jq '.resources[0]' "$PIPELINE_FILE")
-
-            # Read manifest content if exists
+            # Read manifest content if exists, else null
             if [ -f "$MANIFEST_FILE" ]; then
               MANIFEST_JSON=$(cat "$MANIFEST_FILE" | jq -c '.')
             else
               MANIFEST_JSON=null
             fi
 
-            # Prepare JSON payload with both manifest.json and pipeline resource JSON
+            # Read entire pipeline JSON file (not just resources[0])
+            PIPELINE_JSON=$(cat "$PIPELINE_FILE" | jq -c '.')
+
+            # Prepare JSON payload with manifest.json and full pipeline json
             FULL_PAYLOAD=$(jq -n \
               --arg dn "$PIPELINE_NAME" \
               --argjson manifest_obj "$MANIFEST_JSON" \
+              --arg fn_manifest "manifest.json" \
+              --argjson pipeline_obj "$PIPELINE_JSON" \
               --arg fn_pipeline "${PIPELINE_NAME}.json" \
-              --argjson pipeline_obj "$PIPELINE_RESOURCE_JSON" \
               '{
                 displayName: $dn,
                 type: "Pipeline",
@@ -94,7 +95,7 @@ jobs:
                     format: "json",
                     parts: [
                       {
-                        path: "manifest.json",
+                        path: $fn_manifest,
                         payload: $manifest_obj,
                         payloadType: "Json"
                       },
@@ -108,17 +109,18 @@ jobs:
                 }
               }')
 
-            # Prepare payload only for updating definition (without displayName/type/createItemRequest)
+            # Prepare update payload similarly (without displayName/type/createItemRequest)
             DEFINITION_ONLY_PAYLOAD=$(jq -n \
               --argjson manifest_obj "$MANIFEST_JSON" \
+              --arg fn_manifest "manifest.json" \
+              --argjson pipeline_obj "$PIPELINE_JSON" \
               --arg fn_pipeline "${PIPELINE_NAME}.json" \
-              --argjson pipeline_obj "$PIPELINE_RESOURCE_JSON" \
               '{
                 definition: {
                   format: "json",
                   parts: [
                     {
-                      path: "manifest.json",
+                      path: $fn_manifest,
                       payload: $manifest_obj,
                       payloadType: "Json"
                     },
