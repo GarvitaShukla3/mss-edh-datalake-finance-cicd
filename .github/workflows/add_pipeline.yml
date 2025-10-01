@@ -66,15 +66,14 @@ jobs:
 
             echo "📦 Processing pipeline: $PIPELINE_NAME"
 
-            # Prepare payload JSON using jq with argjson and tostring
             FULL_PAYLOAD=$(jq -n \
               --arg dn "$PIPELINE_NAME" \
               --arg fn "$PIPELINE_NAME.json" \
               --argjson payload_obj "$(jq '.' "$PIPELINE_FILE")" \
               '{
+                Type: "Pipeline",
                 createItemRequest: {
                   displayName: $dn,
-                  Type: "Pipeline",
                   definition: {
                     format: "json",
                     parts: [
@@ -107,7 +106,6 @@ jobs:
             echo "Payload for creation/update:"
             echo "$FULL_PAYLOAD" | jq .
 
-            # Check if pipeline already exists
             EXISTING_ITEM_ID=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
               jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n 1)
 
