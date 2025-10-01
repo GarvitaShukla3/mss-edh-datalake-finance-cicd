@@ -1,11 +1,11 @@
 name: Sync Pipelines to Microsoft Fabric Workspace
 
 on:
-  workflow_dispatch:  # manual trigger
+  workflow_dispatch:
   push:
-    branches: [main]  # or change to your deployment branch
+    branches: [main]
     paths:
-      - 'deploy/pipeline/**/pipeline.json'
+      - 'deploy/pipeline/**.json'
 
 env:
   TENANT_ID: ${{ secrets.TENANT_ID }}
@@ -49,29 +49,32 @@ jobs:
           set -e
           API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
 
-          # Find all pipeline.json files
-          PIPELINE_FILES=$(find deploy/pipeline -name pipeline.json)
-          if [ -z "$PIPELINE_FILES" ]; then
-            echo "No pipeline.json files found."
+          PIPELINE_FOLDERS=$(find deploy/pipeline -mindepth 1 -maxdepth 1 -type d)
+          if [ -z "$PIPELINE_FOLDERS" ]; then
+            echo "No pipeline folders found."
             exit 0
           fi
 
-          for FILE in $PIPELINE_FILES; do
-            echo "Processing: $FILE"
+          for DIR in $PIPELINE_FOLDERS; do
+            PIPELINE_NAME=$(basename "$DIR")
+            PIPELINE_FILE="$DIR/$PIPELINE_NAME.json"
 
-            PIPELINE_DIR=$(dirname "$FILE")
-            DISPLAY_NAME=$(basename "$PIPELINE_DIR")
-            FILE_NAME="pipeline.json"
-            CONTENT_BASE64=$(base64 -w 0 "$FILE")
+            if [ ! -f "$PIPELINE_FILE" ]; then
+              echo "❌ Skipping $DIR - missing $PIPELINE_NAME.json"
+              continue
+            fi
+
+            echo "📦 Processing pipeline: $PIPELINE_NAME"
+            CONTENT_BASE64=$(base64 -w 0 "$PIPELINE_FILE")
 
             # Check if pipeline already exists
             EXISTING_ITEM_ID=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
-              jq -r --arg dn "$DISPLAY_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n 1)
+              jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n 1)
 
             # Payloads
             FULL_PAYLOAD=$(jq -n \
-              --arg dn "$DISPLAY_NAME" \
-              --arg fn "$FILE_NAME" \
+              --arg dn "$PIPELINE_NAME" \
+              --arg fn "$PIPELINE_NAME.json" \
               --arg payload "$CONTENT_BASE64" \
               '{
                 displayName: $dn,
@@ -88,8 +91,8 @@ jobs:
                 }
               }')
 
-            DEFINITION_WRAPPED_PAYLOAD=$(jq -n \
-              --arg fn "$FILE_NAME" \
+            DEFINITION_ONLY_PAYLOAD=$(jq -n \
+              --arg fn "$PIPELINE_NAME.json" \
               --arg payload "$CONTENT_BASE64" \
               '{
                 definition: {
@@ -105,14 +108,14 @@ jobs:
               }')
 
             if [ -n "$EXISTING_ITEM_ID" ]; then
-              echo "Pipeline exists (ID: $EXISTING_ITEM_ID), updating..."
+              echo "🔄 Updating existing pipeline..."
               RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
                 -H "Authorization: Bearer $TOKEN" \
                 -H "Content-Type: application/json" \
-                --data "$DEFINITION_WRAPPED_PAYLOAD" \
+                --data "$DEFINITION_ONLY_PAYLOAD" \
                 "$API_BASE/$EXISTING_ITEM_ID/updateDefinition")
             else
-              echo "Pipeline does not exist, creating new..."
+              echo "🆕 Creating new pipeline..."
               RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
                 -H "Authorization: Bearer $TOKEN" \
                 -H "Content-Type: application/json" \
@@ -122,13 +125,13 @@ jobs:
 
             HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
             BODY_RESP=$(echo "$RESPONSE" | sed '$d')
-            echo "HTTP status: $HTTP_CODE"
+            echo "Response code: $HTTP_CODE"
             echo "Response body: $BODY_RESP"
 
             if [[ "$HTTP_CODE" =~ ^2 ]]; then
-              echo "✅ Successfully processed: $DISPLAY_NAME"
+              echo "✅ Successfully processed: $PIPELINE_NAME"
             else
-              echo "❌ Failed to process: $DISPLAY_NAME"
+              echo "❌ Failed to process: $PIPELINE_NAME"
               exit 1
             fi
           done
