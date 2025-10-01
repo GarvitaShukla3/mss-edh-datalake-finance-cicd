@@ -1,4 +1,4 @@
-name: Import Pipelines to Microsoft Fabric Workspace (JSON)
+name: Import Pipelines 
 
 on:
   workflow_dispatch:
