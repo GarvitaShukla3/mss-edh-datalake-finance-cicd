@@ -1,10 +1,12 @@
 name: Import Pipelines to Microsoft Fabric Workspace
 
 on:
+  workflow_dispatch:
   push:
     paths:
       - 'deploy/pipeline/**/manifest.json'
       - 'deploy/pipeline/**/*.json'
+    
 
 env:
   TENANT_ID: ${{ secrets.TENANT_ID }}
