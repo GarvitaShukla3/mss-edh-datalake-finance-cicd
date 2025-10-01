@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y jq curl
+        run: sudo apt-get update && sudo apt-get install -y jq curl coreutils
 
       - name: Get Microsoft Fabric Access Token
         id: get_token
@@ -50,7 +50,7 @@ jobs:
 
           API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
 
-          # Find all pipeline folders (each should have manifest.json + pipeline_name.json)
+          # Find all pipeline folders
           PIPELINE_FOLDERS=$(find deploy/pipeline -mindepth 1 -maxdepth 1 -type d)
 
           if [ -z "$PIPELINE_FOLDERS" ]; then
@@ -65,16 +65,16 @@ jobs:
             PIPELINE_FILE="$PIPELINE_FOLDER/${PIPELINE_NAME}.json"
 
             if [ ! -f "$PIPELINE_FILE" ]; then
-              echo "⚠️ Skipping $PIPELINE_NAME - pipeline json not found at $PIPELINE_FILE"
+              echo "⚠️ Skipping $PIPELINE_NAME - pipeline JSON not found at $PIPELINE_FILE"
               continue
             fi
 
             echo "📦 Processing pipeline: $PIPELINE_NAME"
 
-            # Read pipeline file content as raw string (escaped JSON)
-            PIPELINE_CONTENT=$(jq -Rs '.' "$PIPELINE_FILE")
+            # Base64 encode the pipeline content (no line breaks)
+            PIPELINE_CONTENT=$(base64 -w 0 "$PIPELINE_FILE")
 
-            # Prepare full payload for create (or initial update)
+            # Build payload for creation
             FULL_PAYLOAD=$(jq -n \
               --arg dn "$PIPELINE_NAME" \
               --arg fn "${PIPELINE_NAME}.json" \
@@ -88,13 +88,13 @@ jobs:
                     {
                       path: $fn,
                       payload: $payload,
-                      payloadType: "Inline"
+                      payloadType: "InlineBase64"
                     }
                   ]
                 }
               }')
 
-            # Payload for updating definition only
+            # Build payload for update
             DEFINITION_ONLY_PAYLOAD=$(jq -n \
               --arg fn "${PIPELINE_NAME}.json" \
               --arg payload "$PIPELINE_CONTENT" \
@@ -105,13 +105,13 @@ jobs:
                     {
                       path: $fn,
                       payload: $payload,
-                      payloadType: "Inline"
+                      payloadType: "InlineBase64"
                     }
                   ]
                 }
               }')
 
-            # Check if pipeline exists already
+            # Check if pipeline already exists
             EXISTING_ITEM_ID=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
               jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n 1)
 
