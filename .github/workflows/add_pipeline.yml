@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'deploy/pipeline/**/manifest.json'
+      - 'deploy/pipeline/**/*.json'   # triggers on any JSON change in pipeline folders
 
 env:
   TENANT_ID: ${{ secrets.TENANT_ID }}
@@ -60,33 +60,45 @@ jobs:
             PIPELINE_NAME=$(basename "$PIPELINE_FOLDER")
 
             MANIFEST_FILE="$PIPELINE_FOLDER/manifest.json"
+            ACTIVITIES_FILE="$PIPELINE_FOLDER/${PIPELINE_NAME}.json"
 
             if [ ! -f "$MANIFEST_FILE" ]; then
-              echo "⚠️ Skipping $PIPELINE_NAME - manifest.json not found at $MANIFEST_FILE"
+              echo "⚠️ Skipping $PIPELINE_NAME - manifest.json not found"
+              continue
+            fi
+
+            if [ ! -f "$ACTIVITIES_FILE" ]; then
+              echo "⚠️ Skipping $PIPELINE_NAME - activities file $PIPELINE_NAME.json not found"
               continue
             fi
 
             echo "📦 Processing pipeline: $PIPELINE_NAME"
 
-            # Read manifest content (full pipeline definition)
-            MANIFEST_JSON=$(cat "$MANIFEST_FILE" | jq -c '.')
+            # Read manifest content (base pipeline definition)
+            BASE_DEFINITION=$(cat "$MANIFEST_FILE" | jq -c '.')
 
-            # Prepare full payload using only manifest.json as definition
+            # Read activities content
+            ACTIVITIES_JSON=$(cat "$ACTIVITIES_FILE" | jq -c '.')
+
+            # Merge activities JSON under the 'activities' key in manifest
+            FULL_DEFINITION=$(echo "$BASE_DEFINITION" | jq --argjson acts "$ACTIVITIES_JSON" '.activities = $acts')
+
+            # Prepare payloads
             FULL_PAYLOAD=$(jq -n \
               --arg dn "$PIPELINE_NAME" \
-              --argjson manifest_obj "$MANIFEST_JSON" \
+              --argjson def "$FULL_DEFINITION" \
               '{
                 displayName: $dn,
                 type: "Pipeline",
                 createItemRequest: {
-                  definition: $manifest_obj
+                  definition: $def
                 }
               }')
 
             DEFINITION_ONLY_PAYLOAD=$(jq -n \
-              --argjson manifest_obj "$MANIFEST_JSON" \
+              --argjson def "$FULL_DEFINITION" \
               '{
-                definition: $manifest_obj
+                definition: $def
               }')
 
             # Check if pipeline exists
