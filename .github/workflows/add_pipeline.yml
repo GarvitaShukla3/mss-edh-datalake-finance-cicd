@@ -50,7 +50,6 @@ jobs:
 
           API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
 
-          # Find all pipeline folders (one level under deploy/pipeline)
           PIPELINE_FOLDERS=$(find deploy/pipeline -mindepth 1 -maxdepth 1 -type d)
 
           if [ -z "$PIPELINE_FOLDERS" ]; then
@@ -64,52 +63,84 @@ jobs:
             MANIFEST_FILE="$PIPELINE_FOLDER/manifest.json"
             PIPELINE_FILE="$PIPELINE_FOLDER/${PIPELINE_NAME}.json"
 
-            if [ ! -f "$MANIFEST_FILE" ] || [ ! -f "$PIPELINE_FILE" ]; then
-              echo "⚠️ Skipping $PIPELINE_NAME - missing manifest.json or ${PIPELINE_NAME}.json"
+            if [ ! -f "$PIPELINE_FILE" ]; then
+              echo "⚠️ Skipping $PIPELINE_NAME - pipeline json not found at $PIPELINE_FILE"
               continue
             fi
 
             echo "📦 Processing pipeline: $PIPELINE_NAME"
 
-            MANIFEST_BASE64=$(base64 -w 0 "$MANIFEST_FILE")
-            PIPELINE_BASE64=$(base64 -w 0 "$PIPELINE_FILE")
+            # Extract inner pipeline resource from pipeline json (resources[0])
+            PIPELINE_RESOURCE_JSON=$(jq '.resources[0]' "$PIPELINE_FILE")
 
+            # Read manifest content if exists
+            if [ -f "$MANIFEST_FILE" ]; then
+              MANIFEST_JSON=$(cat "$MANIFEST_FILE" | jq -c '.')
+            else
+              MANIFEST_JSON=null
+            fi
+
+            # Prepare JSON payload with both manifest.json and pipeline resource JSON
             FULL_PAYLOAD=$(jq -n \
               --arg dn "$PIPELINE_NAME" \
-              --arg mf "manifest.json" \
-              --arg pf "${PIPELINE_NAME}.json" \
-              --arg mpayload "$MANIFEST_BASE64" \
-              --arg ppayload "$PIPELINE_BASE64" \
+              --argjson manifest_obj "$MANIFEST_JSON" \
+              --arg fn_pipeline "${PIPELINE_NAME}.json" \
+              --argjson pipeline_obj "$PIPELINE_RESOURCE_JSON" \
               '{
                 displayName: $dn,
-                type: "DataPipeline",
+                type: "Pipeline",
+                createItemRequest: {
+                  definition: {
+                    format: "json",
+                    parts: [
+                      {
+                        path: "manifest.json",
+                        payload: $manifest_obj,
+                        payloadType: "Json"
+                      },
+                      {
+                        path: $fn_pipeline,
+                        payload: $pipeline_obj,
+                        payloadType: "Json"
+                      }
+                    ]
+                  }
+                }
+              }')
+
+            # Prepare payload only for updating definition (without displayName/type/createItemRequest)
+            DEFINITION_ONLY_PAYLOAD=$(jq -n \
+              --argjson manifest_obj "$MANIFEST_JSON" \
+              --arg fn_pipeline "${PIPELINE_NAME}.json" \
+              --argjson pipeline_obj "$PIPELINE_RESOURCE_JSON" \
+              '{
                 definition: {
                   format: "json",
                   parts: [
                     {
-                      path: $mf,
-                      payload: $mpayload,
-                      payloadType: "InlineBase64"
+                      path: "manifest.json",
+                      payload: $manifest_obj,
+                      payloadType: "Json"
                     },
                     {
-                      path: $pf,
-                      payload: $ppayload,
-                      payloadType: "InlineBase64"
+                      path: $fn_pipeline,
+                      payload: $pipeline_obj,
+                      payloadType: "Json"
                     }
                   ]
                 }
               }')
 
-            # Check if pipeline already exists
+            # Check if pipeline exists
             EXISTING_ITEM_ID=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
-              jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName == $dn and .type == "DataPipeline") | .id' | head -n 1)
+              jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n 1)
 
             if [ -n "$EXISTING_ITEM_ID" ]; then
               echo "🔄 Updating existing pipeline $PIPELINE_NAME (ID: $EXISTING_ITEM_ID)..."
               RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
                 -H "Authorization: Bearer $TOKEN" \
                 -H "Content-Type: application/json" \
-                --data "$FULL_PAYLOAD" \
+                --data "$DEFINITION_ONLY_PAYLOAD" \
                 "$API_BASE/$EXISTING_ITEM_ID/updateDefinition")
             else
               echo "🆕 Creating new pipeline $PIPELINE_NAME..."
