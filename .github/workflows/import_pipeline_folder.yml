@@ -1,0 +1,54 @@
+name: Import Pipelines to Microsoft Fabric Workspace
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'deploy/pipeline/**/*.json'   # Trigger on JSON changes in pipeline folders
+
+env:
+  TENANT_ID: ${{ secrets.TENANT_ID }}
+  CLIENT_ID: ${{ secrets.CLIENT_ID }}
+  CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+  WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
+
+jobs:
+  import-pipelines:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq curl
+
+      - name: Get Microsoft Fabric Access Token
+        id: get_token
+        run: |
+          RESPONSE=$(curl -s -X POST -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "grant_type=client_credentials" \
+            -d "client_id=${{ env.CLIENT_ID }}" \
+            -d "client_secret=${{ env.CLIENT_SECRET }}" \
+            -d "scope=https://api.fabric.microsoft.com/.default" \
+            "https://login.microsoftonline.com/${{ env.TENANT_ID }}/oauth2/v2.0/token")
+
+          ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
+          if [[ -z "$ACCESS_TOKEN" || "$ACCESS_TOKEN" == "null" ]]; then
+            echo "❌ Failed to retrieve access token."
+            exit 1
+          fi
+
+          echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
+
+      - name: Import all pipelines
+        env:
+          ACCESS_TOKEN: ${{ env.ACCESS_TOKEN }}
+          WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
+        run: |
+          set -e
+          for folder in deploy/pipeline/*/; do
+            echo "Importing pipeline from folder $folder"
+            # Assuming fabric CLI accepts --token and --workspace flags
+            fabric pipeline import --workspace $WORKSPACE_ID --token $ACCESS_TOKEN --path "$folder"
+          done
