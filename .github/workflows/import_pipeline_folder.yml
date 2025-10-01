@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'deploy/pipeline/**/*.json'   # Trigger on JSON changes in pipeline folders
+      - 'deploy/pipeline/**/*.json'
 
 env:
   TENANT_ID: ${{ secrets.TENANT_ID }}
@@ -21,7 +21,10 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y jq curl
+        run: sudo apt-get update && sudo apt-get install -y jq curl npm
+
+      - name: Install Microsoft Fabric CLI
+        run: npm install -g @microsoft/fabric-cli
 
       - name: Get Microsoft Fabric Access Token
         id: get_token
@@ -49,6 +52,5 @@ jobs:
           set -e
           for folder in deploy/pipeline/*/; do
             echo "Importing pipeline from folder $folder"
-            # Assuming fabric CLI accepts --token and --workspace flags
             fabric pipeline import --workspace $WORKSPACE_ID --token $ACCESS_TOKEN --path "$folder"
           done
