@@ -66,38 +66,47 @@ jobs:
 
             echo "📦 Processing pipeline: $PIPELINE_NAME"
 
-            # Read pipeline JSON content
-            PIPELINE_JSON=$(jq '.' "$PIPELINE_FILE")
+            # Prepare compact JSON string of pipeline file for payload
+            PAYLOAD_STR=$(jq -c '.' "$PIPELINE_FILE")
 
-            # Prepare full payload with wrapped parts array
-            FULL_PAYLOAD=$(jq -n --arg dn "$PIPELINE_NAME" --arg fn "$PIPELINE_NAME.json" --argjson payload "$PIPELINE_JSON" '{
-              displayName: $dn,
-              type: "Pipeline",
-              definition: {
-                format: "json",
-                parts: [
-                  {
-                    path: $fn,
-                    payload: $payload,
-                    payloadType: "Inline"
+            # Prepare full payload with createItemRequest wrapper for creation
+            FULL_PAYLOAD=$(jq -n \
+              --arg dn "$PIPELINE_NAME" \
+              --arg fn "$PIPELINE_NAME.json" \
+              --arg payload_str "$PAYLOAD_STR" \
+              '{
+                createItemRequest: {
+                  displayName: $dn,
+                  type: "Pipeline",
+                  definition: {
+                    format: "json",
+                    parts: [
+                      {
+                        path: $fn,
+                        payload: $payload_str,
+                        payloadType: "Inline"
+                      }
+                    ]
                   }
-                ]
-              }
-            }')
+                }
+              }')
 
             # Prepare update payload (only definition)
-            DEFINITION_ONLY_PAYLOAD=$(jq -n --arg fn "$PIPELINE_NAME.json" --argjson payload "$PIPELINE_JSON" '{
-              definition: {
-                format: "json",
-                parts: [
-                  {
-                    path: $fn,
-                    payload: $payload,
-                    payloadType: "Inline"
-                  }
-                ]
-              }
-            }')
+            DEFINITION_ONLY_PAYLOAD=$(jq -n \
+              --arg fn "$PIPELINE_NAME.json" \
+              --arg payload_str "$PAYLOAD_STR" \
+              '{
+                definition: {
+                  format: "json",
+                  parts: [
+                    {
+                      path: $fn,
+                      payload: $payload_str,
+                      payloadType: "Inline"
+                    }
+                  ]
+                }
+              }')
 
             # Check if pipeline already exists
             EXISTING_ITEM_ID=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
