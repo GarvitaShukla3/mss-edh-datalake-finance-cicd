@@ -1,74 +1,161 @@
-name: Import Pipelines 
+name: Import Pipelines
+
 on:
   workflow_dispatch:
   push:
     paths:
-      - 'deploy/pipeline/**/*.json'
+      - 'deploy/pipeline/**/*.json'   # Trigger on JSON changes in pipeline folders
 
 env:
   TENANT_ID: ${{ secrets.TENANT_ID }}
   CLIENT_ID: ${{ secrets.CLIENT_ID }}
   CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
-  FABRIC_WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
+  WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
 
 jobs:
   import-pipelines:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y jq curl
 
-      - name: Get access token
+      - name: Get Microsoft Fabric Access Token
         id: get_token
         run: |
-          response=$(curl -s -X POST -H "Content-Type: application/x-www-form-urlencoded" \
+          RESPONSE=$(curl -s -X POST -H "Content-Type: application/x-www-form-urlencoded" \
             -d "grant_type=client_credentials" \
             -d "client_id=${{ env.CLIENT_ID }}" \
             -d "client_secret=${{ env.CLIENT_SECRET }}" \
             -d "scope=https://api.fabric.microsoft.com/.default" \
             "https://login.microsoftonline.com/${{ env.TENANT_ID }}/oauth2/v2.0/token")
 
-          token=$(echo "$response" | jq -r '.access_token')
-          if [[ -z "$token" || "$token" == "null" ]]; then
-            echo "Failed to get access token"
+          ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
+          if [[ -z "$ACCESS_TOKEN" || "$ACCESS_TOKEN" == "null" ]]; then
+            echo "❌ Failed to retrieve access token."
+            echo "Response: $RESPONSE"
             exit 1
           fi
-          echo "TOKEN=$token" >> $GITHUB_ENV
 
-      - name: Import pipelines
+          echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
+
+      - name: Import pipelines into Microsoft Fabric workspace
+        env:
+          TOKEN: ${{ env.ACCESS_TOKEN }}
+          WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
         run: |
           set -e
-          BASE_DIR="deploy/pipeline"
 
-          for pipeline_dir in $(find "$BASE_DIR" -mindepth 1 -maxdepth 1 -type d); do
-            echo "Importing pipeline from $pipeline_dir"
+          API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
+          PIPELINE_FOLDERS=$(find deploy/pipeline -mindepth 1 -maxdepth 1 -type d)
 
-            # Find JSON files inside pipeline folder (assuming exactly 2)
-            json_files=($(find "$pipeline_dir" -maxdepth 1 -name '*.json'))
-            if [ "${#json_files[@]}" -ne 2 ]; then
-              echo "Expected 2 JSON files inside $pipeline_dir, found ${#json_files[@]}"
+          if [ -z "$PIPELINE_FOLDERS" ]; then
+            echo "⚠️ No pipeline folders found."
+            exit 0
+          fi
+
+          for PIPELINE_FOLDER in $PIPELINE_FOLDERS; do
+            PIPELINE_NAME=$(basename "$PIPELINE_FOLDER")
+            echo "🔍 Found pipeline folder: $PIPELINE_NAME"
+
+            MANIFEST_FILE="$PIPELINE_FOLDER/manifest.json"
+            ACTIVITIES_FILE="$PIPELINE_FOLDER/${PIPELINE_NAME}.json"
+
+            if [ ! -f "$MANIFEST_FILE" ]; then
+              echo "⚠️ Skipping $PIPELINE_NAME - manifest.json not found"
+              continue
+            fi
+
+            if [ ! -f "$ACTIVITIES_FILE" ]; then
+              echo "⚠️ Skipping $PIPELINE_NAME - activities file $PIPELINE_NAME.json not found"
+              continue
+            fi
+
+            echo "📂 Reading manifest.json..."
+            BASE_DEFINITION=$(cat "$MANIFEST_FILE" | jq -c '.')
+            echo "📜 BASE_DEFINITION: $BASE_DEFINITION"
+
+            echo "📂 Reading pipeline resource from $ACTIVITIES_FILE..."
+            PIPELINE_RESOURCE=$(cat "$ACTIVITIES_FILE" | jq -c '.resources[0]')
+            echo "📜 PIPELINE_RESOURCE: $PIPELINE_RESOURCE"
+
+            if [ -z "$PIPELINE_RESOURCE" ] || [ "$PIPELINE_RESOURCE" == "null" ]; then
+              echo "❌ Invalid pipeline resource in $ACTIVITIES_FILE"
               exit 1
             fi
 
-            for json_file in "${json_files[@]}"; do
-              echo "Uploading $json_file"
+            PIPELINE_DEFINITION=$(echo "$PIPELINE_RESOURCE" | jq -c '.properties')
+            echo "📜 PIPELINE_DEFINITION: $PIPELINE_DEFINITION"
 
-              # Assuming the API to import pipelines is like this (replace with actual Fabric API endpoint)
-              response=$(curl -s -o response.json -w "%{http_code}" -X POST \
+            if [ -z "$PIPELINE_DEFINITION" ] || [ "$PIPELINE_DEFINITION" == "null" ]; then
+              echo "❌ Missing properties in pipeline resource from $ACTIVITIES_FILE"
+              exit 1
+            fi
+
+            echo "🔧 Extracted activities:"
+            echo "$PIPELINE_DEFINITION" | jq '.activities'
+
+            echo "🧬 Assembling final definition..."
+            FULL_DEFINITION=$(echo "$BASE_DEFINITION" | jq --argjson pd "$PIPELINE_DEFINITION" '
+              .activities = $pd.activities
+              | .lastModifiedByObjectId = $pd.lastModifiedByObjectId
+              | .lastPublishTime = $pd.lastPublishTime
+            ')
+            echo "📦 FULL_DEFINITION: $FULL_DEFINITION"
+
+            FULL_PAYLOAD=$(jq -n \
+              --arg dn "$PIPELINE_NAME" \
+              --argjson def "$FULL_DEFINITION" \
+              '{
+                displayName: $dn,
+                type: "Pipeline",
+                createItemRequest: {
+                  definition: $def
+                }
+              }')
+            echo "📤 FULL_PAYLOAD for new item:"
+            echo "$FULL_PAYLOAD" | jq '.'
+
+            DEFINITION_ONLY_PAYLOAD=$(jq -n \
+              --argjson def "$FULL_DEFINITION" \
+              '{ definition: $def }')
+            echo "📤 DEFINITION_ONLY_PAYLOAD for update:"
+            echo "$DEFINITION_ONLY_PAYLOAD" | jq '.'
+
+            echo "🔎 Checking if pipeline $PIPELINE_NAME already exists in Fabric workspace..."
+            EXISTING_ITEM_ID=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
+              jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n 1)
+
+            if [ -n "$EXISTING_ITEM_ID" ]; then
+              echo "🔄 Updating existing pipeline $PIPELINE_NAME (ID: $EXISTING_ITEM_ID)..."
+              RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
                 -H "Authorization: Bearer $TOKEN" \
                 -H "Content-Type: application/json" \
-                -d @"$json_file" \
-                "https://api.fabric.microsoft.com/workspaces/${{ env.FABRIC_WORKSPACE_ID }}/pipelines/import")
+                --data "$DEFINITION_ONLY_PAYLOAD" \
+                "$API_BASE/$EXISTING_ITEM_ID/updateDefinition")
+            else
+              echo "🆕 Creating new pipeline $PIPELINE_NAME..."
+              RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+                -H "Authorization: Bearer $TOKEN" \
+                -H "Content-Type: application/json" \
+                --data "$FULL_PAYLOAD" \
+                "$API_BASE")
+            fi
 
-              if [ "$response" -ne 200 ]; then
-                echo "Failed to import $json_file with status code $response"
-                cat response.json
-                exit 1
-              fi
+            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+            BODY_RESP=$(echo "$RESPONSE" | sed '$d')
 
-              echo "Successfully imported $json_file"
-            done
+            echo "🔽 Response code: $HTTP_CODE"
+            echo "📨 Response body:"
+            echo "$BODY_RESP" | jq '.'
+
+            if [[ "$HTTP_CODE" =~ ^2 ]]; then
+              echo "✅ Successfully processed: $PIPELINE_NAME"
+            else
+              echo "❌ Failed to process: $PIPELINE_NAME"
+              exit 1
+            fi
           done
