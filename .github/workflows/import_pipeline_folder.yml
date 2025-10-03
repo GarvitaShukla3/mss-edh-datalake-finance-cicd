@@ -1,10 +1,10 @@
-name: Import Full Pipelines from Exported JSON
+name: Import Pipeline Using Manifest Only
 
 on:
   workflow_dispatch:
   push:
     paths:
-      - 'deploy/pipeline/**/*.json'
+      - 'deploy/pipeline/**/manifest.json'
 
 env:
   TENANT_ID: ${{ secrets.TENANT_ID }}
@@ -13,7 +13,7 @@ env:
   WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
 
 jobs:
-  import-pipelines:
+  import-pipeline:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -42,7 +42,7 @@ jobs:
           echo "✅ Access token retrieved."
           echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
 
-      - name: Create pipelines with full exported JSON
+      - name: Create pipelines from manifest.json only
         env:
           TOKEN: ${{ env.ACCESS_TOKEN }}
           WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
@@ -50,47 +50,26 @@ jobs:
           set -euo pipefail
 
           API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
-          echo "🔎 Looking for pipeline JSON files..."
+          echo "🔎 Searching for manifest.json files..."
 
-          PIPELINE_JSON_FILES=$(find deploy/pipeline -name '*.json' -not -name 'manifest.json' || true)
+          MANIFEST_FILES=$(find deploy/pipeline -name 'manifest.json' || true)
 
-          if [ -z "$PIPELINE_JSON_FILES" ]; then
-            echo "ℹ️ No pipeline JSON files found; exiting."
+          if [ -z "$MANIFEST_FILES" ]; then
+            echo "ℹ️ No manifest.json files found; exiting."
             exit 0
           fi
 
-          for PIPELINE_JSON_FILE in $PIPELINE_JSON_FILES; do
-            PIPELINE_FOLDER=$(dirname "$PIPELINE_JSON_FILE")
-            PIPELINE_NAME=$(basename "$PIPELINE_JSON_FILE" .json)
+          for MANIFEST_FILE in $MANIFEST_FILES; do
+            PIPELINE_FOLDER=$(dirname "$MANIFEST_FILE")
+            PIPELINE_NAME=$(basename "$PIPELINE_FOLDER")
 
-            echo "📦 Processing pipeline JSON: $PIPELINE_JSON_FILE"
+            echo "📦 Processing pipeline manifest: $MANIFEST_FILE"
 
-            # Read full exported JSON
-            FULL_PIPELINE_JSON=$(cat "$PIPELINE_JSON_FILE")
+            # Read manifest content
+            MANIFEST_CONTENT=$(jq '.' "$MANIFEST_FILE")
 
-            # Extract displayName from top-level or fallback to filename
-            DISPLAY_NAME=$(echo "$FULL_PIPELINE_JSON" | jq -r '.displayName // .name // "'"$PIPELINE_NAME"'"')
-
-            # Extract manifest
-            MANIFEST=$(echo "$FULL_PIPELINE_JSON" | jq '.manifest')
-            if [ "$MANIFEST" == "null" ]; then
-              echo "⚠️ manifest not found in $PIPELINE_JSON_FILE, skipping."
-              continue
-            fi
-
-            # Extract pipeline resource of type 'pipelines'
-            PIPELINE_RESOURCE=$(echo "$FULL_PIPELINE_JSON" | jq '.resources[] | select(.type == "pipelines")')
-            if [ -z "$PIPELINE_RESOURCE" ] || [ "$PIPELINE_RESOURCE" == "null" ]; then
-              echo "⚠️ No resource of type 'pipelines' found in $PIPELINE_JSON_FILE, skipping."
-              continue
-            fi
-
-            # Extract full properties object
-            FULL_PROPERTIES=$(echo "$PIPELINE_RESOURCE" | jq '.properties')
-            if [ "$FULL_PROPERTIES" == "null" ]; then
-              echo "⚠️ No properties found in pipeline resource, skipping."
-              continue
-            fi
+            # Extract displayName from manifest or fallback to folder name
+            DISPLAY_NAME=$(echo "$MANIFEST_CONTENT" | jq -r '.displayName // "'"$PIPELINE_NAME"'"')
 
             # Check if pipeline already exists (by displayName)
             echo "🔍 Checking if pipeline '$DISPLAY_NAME' exists..."
@@ -102,21 +81,20 @@ jobs:
               continue
             fi
 
-            # Compose full create payload including manifest and full properties
+            # Compose create payload with manifest only (empty definition)
             CREATE_PAYLOAD=$(jq -n \
               --arg dn "$DISPLAY_NAME" \
-              --argjson manifest "$MANIFEST" \
-              --argjson properties "$FULL_PROPERTIES" \
+              --argjson manifest "$MANIFEST_CONTENT" \
               '{
                 displayName: $dn,
                 type: "Pipeline",
                 createItemRequest: {
                   manifest: $manifest,
-                  definition: { properties: $properties }
+                  definition: {}
                 }
               }')
 
-            echo "🚀 Creating pipeline with full properties: $DISPLAY_NAME"
+            echo "🚀 Creating pipeline from manifest: $DISPLAY_NAME"
 
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
               -H "Authorization: Bearer $TOKEN" \
