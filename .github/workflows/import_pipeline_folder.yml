@@ -1,4 +1,4 @@
-name: Import Pipelines with Activities
+name: Import Pipelines with Full Properties at Creation
 
 on:
   workflow_dispatch:
@@ -43,7 +43,7 @@ jobs:
           echo "✅ Access token retrieved."
           echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
 
-      - name: Import pipelines from JSON folders (two-step create & update)
+      - name: Create pipelines with full properties at once
         env:
           TOKEN: ${{ env.ACCESS_TOKEN }}
           WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
@@ -66,105 +66,77 @@ jobs:
 
             echo "📦 Processing pipeline: $PIPELINE_NAME"
 
-            # Validate presence
             if [ ! -f "$MANIFEST_FILE" ]; then
               echo "⚠️ Skipping $PIPELINE_NAME — manifest.json not found"
               continue
             fi
+
             if [ ! -f "$PIPELINE_JSON_FILE" ]; then
               echo "⚠️ Skipping $PIPELINE_NAME — ${PIPELINE_NAME}.json not found"
               continue
             fi
 
-            # Read manifest and pipeline JSON
+            # Read manifest and full pipeline JSON (which includes full properties)
             MANIFEST_CONTENT=$(jq '.' "$MANIFEST_FILE")
-            PIPELINE_CONTENT=$(jq '.' "$PIPELINE_JSON_FILE")
+            FULL_PIPELINE_JSON=$(jq '.' "$PIPELINE_JSON_FILE")
 
-            # Extract pipeline resource
-            PIPELINE_RESOURCE=$(echo "$PIPELINE_CONTENT" | jq '.resources[] | select(.type == "pipelines")')
+            # Extract pipeline resource (type == "pipelines")
+            PIPELINE_RESOURCE=$(echo "$FULL_PIPELINE_JSON" | jq '.resources[] | select(.type == "pipelines")')
             if [ -z "$PIPELINE_RESOURCE" ] || [ "$PIPELINE_RESOURCE" == "null" ]; then
               echo "❌ No pipeline resource of type 'pipelines' found in $PIPELINE_JSON_FILE. Skipping."
               continue
             fi
 
-            # Extract full 'properties' field
-            PROPERTIES=$(echo "$PIPELINE_RESOURCE" | jq '.properties')
-            if [ "$PROPERTIES" == "null" ] || [ "$(echo "$PROPERTIES" | jq 'length')" -eq 0 ]; then
-              echo "❌ No 'properties' found for $PIPELINE_NAME. Skipping."
+            # Extract full properties object
+            FULL_PROPERTIES=$(echo "$PIPELINE_RESOURCE" | jq '.properties')
+            if [ "$FULL_PROPERTIES" == "null" ]; then
+              echo "❌ No properties found in pipeline resource. Skipping."
               continue
             fi
 
-            # Step 1: Create skeleton pipeline
-            echo "📤 Creating pipeline skeleton for: $PIPELINE_NAME"
+            # Check if pipeline already exists (by displayName)
+            echo "🔍 Checking if pipeline '$PIPELINE_NAME' exists..."
+            EXISTS=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
+              jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n1)
 
+            if [ -n "$EXISTS" ]; then
+              echo "⚠️ Pipeline $PIPELINE_NAME already exists (ID: $EXISTS). Skipping creation."
+              continue
+            fi
+
+            # Compose full create payload including full properties inside definition
             CREATE_PAYLOAD=$(jq -n \
               --arg dn "$PIPELINE_NAME" \
               --argjson manifest "$MANIFEST_CONTENT" \
+              --argjson properties "$FULL_PROPERTIES" \
               '{
                 displayName: $dn,
                 type: "Pipeline",
                 createItemRequest: {
-                  manifest: $manifest
+                  manifest: $manifest,
+                  definition: { properties: $properties }
                 }
               }')
 
-            CREATE_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            echo "🚀 Creating pipeline with full properties: $PIPELINE_NAME"
+            # Optional: echo "$CREATE_PAYLOAD" | jq .
+
+            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
               -H "Authorization: Bearer $TOKEN" \
               -H "Content-Type: application/json" \
               --data "$CREATE_PAYLOAD" \
               "$API_BASE")
 
-            CREATE_HTTP_CODE=$(echo "$CREATE_RESPONSE" | tail -n1)
-            CREATE_BODY=$(echo "$CREATE_RESPONSE" | sed '$d')
+            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+            BODY=$(echo "$RESPONSE" | sed '$d')
 
-            if [[ "$CREATE_HTTP_CODE" =~ ^2 ]]; then
-              echo "✅ Skeleton created successfully."
-              NEW_PIPELINE_ID=$(echo "$CREATE_BODY" | jq -r '.id')
-              echo "🆔 Pipeline ID: $NEW_PIPELINE_ID"
+            echo "Response HTTP code: $HTTP_CODE"
+            echo "Response body: $BODY"
+
+            if [[ "$HTTP_CODE" =~ ^2 ]]; then
+              echo "✅ Successfully created pipeline: $PIPELINE_NAME"
             else
-              echo "❌ Failed to create pipeline skeleton: $PIPELINE_NAME"
-              echo "$CREATE_BODY"
+              echo "❌ Failed to create pipeline: $PIPELINE_NAME"
               exit 1
             fi
-
-            # Step 2: Retry loop to update definition
-            echo "📥 Updating pipeline definition for: $PIPELINE_NAME"
-
-            DEFINITION_PAYLOAD=$(jq -n \
-              --argjson props "$PROPERTIES" \
-              '{ properties: $props }')
-
-            DEFINITION_URL="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items/${NEW_PIPELINE_ID}/definition"
-
-            MAX_RETRIES=5
-            RETRY_DELAY=5
-            SUCCESS=false
-
-            for i in $(seq 1 $MAX_RETRIES); do
-              echo "⏳ Attempt $i to update definition..."
-              UPDATE_RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT \
-                -H "Authorization: Bearer $TOKEN" \
-                -H "Content-Type: application/json" \
-                --data "$DEFINITION_PAYLOAD" \
-                "$DEFINITION_URL")
-
-              UPDATE_HTTP_CODE=$(echo "$UPDATE_RESPONSE" | tail -n1)
-              UPDATE_BODY=$(echo "$UPDATE_RESPONSE" | sed '$d')
-
-              if [[ "$UPDATE_HTTP_CODE" =~ ^2 ]]; then
-                echo "✅ Successfully updated pipeline definition: $PIPELINE_NAME"
-                SUCCESS=true
-                break
-              else
-                echo "⚠️ Failed attempt $i to update definition. HTTP $UPDATE_HTTP_CODE"
-                echo "$UPDATE_BODY"
-                sleep $RETRY_DELAY
-              fi
-            done
-
-            if [ "$SUCCESS" = false ]; then
-              echo "❌ Failed to update definition for $PIPELINE_NAME after $MAX_RETRIES attempts"
-              exit 1
-            fi
-
           done
