@@ -99,14 +99,26 @@ jobs:
               continue
             fi
 
-            ACTIVITIES_COUNT=$(echo "$PIPELINE_RESOURCE" | jq '.properties.activities | length // 0')
-
-            if [ "$ACTIVITIES_COUNT" -eq 0 ]; then
+            ACTIVITIES=$(echo "$PIPELINE_RESOURCE" | jq '.properties.activities')
+            if [ "$ACTIVITIES" == "null" ] || [ "$(echo "$ACTIVITIES" | jq 'length')" -eq 0 ]; then
               echo "❌ No activities found in pipeline resource inside $PIPELINE_JSON_FILE. Skipping."
               continue
             fi
 
-            echo "📄 Encoding manifest.json and pipeline resource..."
+            # Extract lastModifiedByObjectId and lastPublishTime if present
+            LAST_MODIFIED=$(echo "$PIPELINE_RESOURCE" | jq -r '.properties.lastModifiedByObjectId // empty')
+            LAST_PUBLISH=$(echo "$PIPELINE_RESOURCE" | jq -r '.properties.lastPublishTime // empty')
+
+            # Build properties JSON with activities and metadata
+            PROPERTIES_PAYLOAD=$(jq -n \
+              --argjson activities "$ACTIVITIES" \
+              --arg lastModified "$LAST_MODIFIED" \
+              --arg lastPublish "$LAST_PUBLISH" \
+              '{
+                activities: $activities
+              }
+              | if $lastModified != "" then . + { lastModifiedByObjectId: $lastModified } else . end
+              | if $lastPublish != "" then . + { lastPublishTime: $lastPublish } else . end')
 
             # Read manifest.json as compact JSON
             MANIFEST_CONTENT=$(jq -c '.' "$MANIFEST_FILE")
@@ -115,13 +127,15 @@ jobs:
             FULL_PAYLOAD=$(jq -n \
               --arg dn "$PIPELINE_NAME" \
               --argjson manifest "$MANIFEST_CONTENT" \
-              --argjson def "$PIPELINE_RESOURCE" \
+              --argjson properties "$PROPERTIES_PAYLOAD" \
               '{
                 displayName: $dn,
                 type: "Pipeline",
                 createItemRequest: {
                   manifest: $manifest,
-                  definition: $def
+                  definition: {
+                    properties: $properties
+                  }
                 }
               }')
 
