@@ -1,4 +1,4 @@
-name: Import Pipelines 
+name: Import Pipelines
 
 on:
   workflow_dispatch:
@@ -26,19 +26,27 @@ jobs:
       - name: Get Microsoft Fabric Access Token
         id: get_token
         run: |
+          set -euo pipefail
+
+          echo "🔐 Requesting access token..."
           RESPONSE=$(curl -s -X POST -H "Content-Type: application/x-www-form-urlencoded" \
             -d "grant_type=client_credentials" \
             -d "client_id=${{ env.CLIENT_ID }}" \
             -d "client_secret=${{ env.CLIENT_SECRET }}" \
             -d "scope=https://api.fabric.microsoft.com/.default" \
-            "https://login.microsoftonline.com/${{ env.TENANT_ID }}/oauth2/v2.0/token")
+            "https://login.microsoftonline.com/${{ env.TENANT_ID }}/oauth2/v2.0/token") || {
+              echo "❌ Failed to call token endpoint"
+              exit 1
+          }
 
           ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
           if [[ -z "$ACCESS_TOKEN" || "$ACCESS_TOKEN" == "null" ]]; then
-            echo "❌ Failed to retrieve access token."
+            echo "❌ Failed to retrieve access token. Response:"
+            echo "$RESPONSE"
             exit 1
           fi
 
+          echo "✅ Access token retrieved."
           echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
 
       - name: Import pipelines from JSON folders
@@ -50,93 +58,104 @@ jobs:
 
           API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
 
-          PIPELINE_FOLDERS=$(find deploy/pipeline -mindepth 1 -maxdepth 1 -type d)
+          echo "🔎 Finding pipeline folders..."
+          PIPELINE_FOLDERS=$(find deploy/pipeline -mindepth 1 -maxdepth 1 -type d || true)
 
           if [ -z "$PIPELINE_FOLDERS" ]; then
-            echo "No pipeline folders found."
+            echo "⚠️ No pipeline folders found. Nothing to do."
             exit 0
           fi
 
           for PIPELINE_FOLDER in $PIPELINE_FOLDERS; do
             PIPELINE_NAME=$(basename "$PIPELINE_FOLDER")
 
-            MANIFEST_FILE="$PIPELINE_FOLDER/manifest.json"
             PIPELINE_JSON_FILE="$PIPELINE_FOLDER/${PIPELINE_NAME}.json"
+            MANIFEST_FILE="$PIPELINE_FOLDER/manifest.json"
 
-            if [ ! -f "$MANIFEST_FILE" ]; then
-              echo "⚠️ Skipping $PIPELINE_NAME - manifest.json not found"
-              continue
-            fi
+            echo "📦 Processing pipeline: $PIPELINE_NAME"
 
             if [ ! -f "$PIPELINE_JSON_FILE" ]; then
               echo "⚠️ Skipping $PIPELINE_NAME - ${PIPELINE_NAME}.json not found"
               continue
             fi
 
-            echo "📦 Processing pipeline: $PIPELINE_NAME"
-
-            # Load manifest base definition
-            BASE_DEFINITION=$(jq -c '.' "$MANIFEST_FILE")
-
-            # Load pipeline resource properties with activities
-            PIPELINE_RESOURCE=$(jq -c '.resources[0]' "$PIPELINE_JSON_FILE")
-            if [ -z "$PIPELINE_RESOURCE" ] || [ "$PIPELINE_RESOURCE" == "null" ]; then
-              echo "❌ Invalid pipeline resource in $PIPELINE_JSON_FILE"
-              exit 1
-            fi
-
-            PIPELINE_PROPERTIES=$(echo "$PIPELINE_RESOURCE" | jq '.properties')
-
-            ACTIVITIES=$(echo "$PIPELINE_PROPERTIES" | jq '.activities')
-            if [ "$ACTIVITIES" == "null" ] || [ "$(echo "$ACTIVITIES" | jq 'length')" -eq 0 ]; then
-              echo "❌ No activities found in $PIPELINE_JSON_FILE - skipping."
+            if [ ! -f "$MANIFEST_FILE" ]; then
+              echo "⚠️ Skipping $PIPELINE_NAME - manifest.json not found"
               continue
             fi
 
-            LAST_MODIFIED=$(echo "$PIPELINE_PROPERTIES" | jq -r '.lastModifiedByObjectId // empty')
-            LAST_PUBLISH=$(echo "$PIPELINE_PROPERTIES" | jq -r '.lastPublishTime // empty')
+            # Base64 encode full pipeline JSON file content
+            echo "🔄 Encoding pipeline JSON file..."
+            PIPELINE_JSON_BASE64=$(base64 -w 0 "$PIPELINE_JSON_FILE") || {
+              echo "❌ Failed to base64 encode $PIPELINE_JSON_FILE"
+              exit 1
+            }
 
-            # Create clean definition JSON
-            CLEAN_DEFINITION=$(jq -n \
-              --argjson activities "$ACTIVITIES" \
-              --arg lastModified "$LAST_MODIFIED" \
-              --arg lastPublish "$LAST_PUBLISH" \
-              '{
-                activities: $activities
-              }
-              | if $lastModified != "" then . + { lastModifiedByObjectId: $lastModified } else . end
-              | if $lastPublish != "" then . + { lastPublishTime: $lastPublish } else . end
-              ')
-
-            # Build full payload
+            # Build full payload with definition as base64 encoded JSON
             FULL_PAYLOAD=$(jq -n \
               --arg dn "$PIPELINE_NAME" \
-              --argjson def "$CLEAN_DEFINITION" \
+              --arg fn "${PIPELINE_NAME}.json" \
+              --arg payload "$PIPELINE_JSON_BASE64" \
               '{
                 displayName: $dn,
                 type: "Pipeline",
-                createItemRequest: {
-                  definition: $def
+                definition: {
+                  format: "json",
+                  parts: [
+                    {
+                      path: $fn,
+                      payload: $payload,
+                      payloadType: "InlineBase64"
+                    }
+                  ]
                 }
-              }')
+              }') || {
+                echo "❌ Failed to build JSON payload for $PIPELINE_NAME"
+                exit 1
+              }
 
             echo "🧪 Payload to API:"
-            echo "$FULL_PAYLOAD" | jq .
+            echo "$FULL_PAYLOAD" | jq . || true
 
-            # Check existing pipeline ID
-            EXISTING_ITEM_ID=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
-              jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n 1)
+            echo "🔎 Checking if pipeline exists..."
+            EXISTING_ITEM_ID=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" || {
+              echo "❌ Failed to get existing pipelines list"
+              exit 1
+            } | jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n 1) || {
+              echo "❌ Failed to parse existing pipeline IDs"
+              exit 1
+            }
 
             if [ -n "$EXISTING_ITEM_ID" ]; then
               echo "🔄 Updating existing pipeline $PIPELINE_NAME (ID: $EXISTING_ITEM_ID)..."
 
-              UPDATE_PAYLOAD=$(jq -n --argjson def "$CLEAN_DEFINITION" '{ definition: $def }')
+              UPDATE_PAYLOAD=$(jq -n \
+                --arg fn "${PIPELINE_NAME}.json" \
+                --arg payload "$PIPELINE_JSON_BASE64" \
+                '{
+                  definition: {
+                    format: "json",
+                    parts: [
+                      {
+                        path: $fn,
+                        payload: $payload,
+                        payloadType: "InlineBase64"
+                      }
+                    ]
+                  }
+                }') || {
+                  echo "❌ Failed to build update payload for $PIPELINE_NAME"
+                  exit 1
+                }
 
               RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
                 -H "Authorization: Bearer $TOKEN" \
                 -H "Content-Type: application/json" \
                 --data "$UPDATE_PAYLOAD" \
-                "$API_BASE/$EXISTING_ITEM_ID/updateDefinition")
+                "$API_BASE/$EXISTING_ITEM_ID/updateDefinition") || {
+                  echo "❌ API request to update pipeline $PIPELINE_NAME failed"
+                  exit 1
+                }
             else
               echo "🆕 Creating new pipeline $PIPELINE_NAME..."
 
@@ -144,7 +163,10 @@ jobs:
                 -H "Authorization: Bearer $TOKEN" \
                 -H "Content-Type: application/json" \
                 --data "$FULL_PAYLOAD" \
-                "$API_BASE")
+                "$API_BASE") || {
+                  echo "❌ API request to create pipeline $PIPELINE_NAME failed"
+                  exit 1
+                }
             fi
 
             HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
@@ -157,7 +179,8 @@ jobs:
               echo "✅ Successfully processed pipeline: $PIPELINE_NAME"
             else
               echo "❌ Failed to process pipeline: $PIPELINE_NAME"
+              echo "Full response was:"
+              echo "$BODY_RESP"
               exit 1
             fi
-
           done
