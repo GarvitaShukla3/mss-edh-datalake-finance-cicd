@@ -1,108 +1,151 @@
-- name: Import pipelines from JSON folders (create if not exist)
-  env:
-    TOKEN: ${{ env.ACCESS_TOKEN }}
-    WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
-  run: |
-    set -euo pipefail
+name: Import Pipelines
 
-    API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'deploy/pipeline/**/*.json'
 
-    echo "🔎 Finding pipeline folders..."
-    PIPELINE_FOLDERS=$(find deploy/pipeline -mindepth 1 -maxdepth 1 -type d)
+env:
+  TENANT_ID: ${{ secrets.TENANT_ID }}
+  CLIENT_ID: ${{ secrets.CLIENT_ID }}
+  CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+  WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
 
-    if [ -z "$PIPELINE_FOLDERS" ]; then
-      echo "No pipeline folders found."
-      exit 0
-    fi
+jobs:
+  import-pipelines:
+    runs-on: ubuntu-latest
 
-    for PIPELINE_FOLDER in $PIPELINE_FOLDERS; do
-      PIPELINE_NAME=$(basename "$PIPELINE_FOLDER")
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      MANIFEST_FILE="$PIPELINE_FOLDER/manifest.json"
-      PIPELINE_JSON_FILE="$PIPELINE_FOLDER/${PIPELINE_NAME}.json"
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq curl
 
-      echo "📦 Processing pipeline: $PIPELINE_NAME"
+      - name: Get Microsoft Fabric Access Token
+        id: get_token
+        run: |
+          RESPONSE=$(curl -s -X POST -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "grant_type=client_credentials" \
+            -d "client_id=${{ env.CLIENT_ID }}" \
+            -d "client_secret=${{ env.CLIENT_SECRET }}" \
+            -d "scope=https://api.fabric.microsoft.com/.default" \
+            "https://login.microsoftonline.com/${{ env.TENANT_ID }}/oauth2/v2.0/token")
 
-      # Validate presence of required files
-      if [ ! -f "$MANIFEST_FILE" ]; then
-        echo "⚠️ Skipping $PIPELINE_NAME - manifest.json not found"
-        continue
-      fi
+          ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
+          if [[ -z "$ACCESS_TOKEN" || "$ACCESS_TOKEN" == "null" ]]; then
+            echo "❌ Failed to retrieve access token."
+            exit 1
+          fi
 
-      if [ ! -f "$PIPELINE_JSON_FILE" ]; then
-        echo "⚠️ Skipping $PIPELINE_NAME - ${PIPELINE_NAME}.json not found"
-        continue
-      fi
+          echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
 
-      echo "🔎 Checking if pipeline $PIPELINE_NAME already exists..."
+      - name: Import pipelines from JSON folders (create if not exist)
+        env:
+          TOKEN: ${{ env.ACCESS_TOKEN }}
+          WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
+        run: |
+          set -euo pipefail
 
-      EXISTING_ITEM_ID=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
-        jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n 1)
+          API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
 
-      if [ -n "$EXISTING_ITEM_ID" ]; then
-        echo "⚠️ Pipeline '$PIPELINE_NAME' already exists (ID: $EXISTING_ITEM_ID). Skipping creation."
-        continue
-      fi
+          echo "🔎 Finding pipeline folders..."
+          PIPELINE_FOLDERS=$(find deploy/pipeline -mindepth 1 -maxdepth 1 -type d)
 
-      echo "📄 Reading and processing JSON files..."
+          if [ -z "$PIPELINE_FOLDERS" ]; then
+            echo "No pipeline folders found."
+            exit 0
+          fi
 
-      PIPELINE_JSON_CONTENT=$(cat "$PIPELINE_JSON_FILE")
+          for PIPELINE_FOLDER in $PIPELINE_FOLDERS; do
+            PIPELINE_NAME=$(basename "$PIPELINE_FOLDER")
 
-      # Extract pipeline resource inside ARM template
-      PIPELINE_RESOURCE=$(echo "$PIPELINE_JSON_CONTENT" | jq '.resources[0]')
+            MANIFEST_FILE="$PIPELINE_FOLDER/manifest.json"
+            PIPELINE_JSON_FILE="$PIPELINE_FOLDER/${PIPELINE_NAME}.json"
 
-      if [ "$PIPELINE_RESOURCE" == "null" ] || [ -z "$PIPELINE_RESOURCE" ]; then
-        echo "❌ No pipeline resource found inside $PIPELINE_JSON_FILE. Skipping."
-        continue
-      fi
+            echo "📦 Processing pipeline: $PIPELINE_NAME"
 
-      ACTIVITIES_COUNT=$(echo "$PIPELINE_RESOURCE" | jq '.properties.activities | length // 0')
+            # Validate presence of required files
+            if [ ! -f "$MANIFEST_FILE" ]; then
+              echo "⚠️ Skipping $PIPELINE_NAME - manifest.json not found"
+              continue
+            fi
 
-      if [ "$ACTIVITIES_COUNT" -eq 0 ]; then
-        echo "❌ No activities found in pipeline resource inside $PIPELINE_JSON_FILE. Skipping."
-        continue
-      fi
+            if [ ! -f "$PIPELINE_JSON_FILE" ]; then
+              echo "⚠️ Skipping $PIPELINE_NAME - ${PIPELINE_NAME}.json not found"
+              continue
+            fi
 
-      echo "📄 Encoding manifest.json and pipeline resource..."
+            echo "🔎 Checking if pipeline $PIPELINE_NAME already exists..."
 
-      # Read manifest.json as compact JSON
-      MANIFEST_CONTENT=$(jq -c '.' "$MANIFEST_FILE")
+            EXISTING_ITEM_ID=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
+              jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n 1)
 
-      # Build the combined payload with manifest and pipeline definition
-      FULL_PAYLOAD=$(jq -n \
-        --arg dn "$PIPELINE_NAME" \
-        --argjson manifest "$MANIFEST_CONTENT" \
-        --argjson def "$PIPELINE_RESOURCE" \
-        '{
-          displayName: $dn,
-          type: "Pipeline",
-          createItemRequest: {
-            manifest: $manifest,
-            definition: $def
-          }
-        }')
+            if [ -n "$EXISTING_ITEM_ID" ]; then
+              echo "⚠️ Pipeline '$PIPELINE_NAME' already exists (ID: $EXISTING_ITEM_ID). Skipping creation."
+              continue
+            fi
 
-      echo "🧩 Payload to API:"
-      echo "$FULL_PAYLOAD" | jq .
+            echo "📄 Reading and processing JSON files..."
 
-      echo "🆕 Creating new pipeline $PIPELINE_NAME..."
+            PIPELINE_JSON_CONTENT=$(cat "$PIPELINE_JSON_FILE")
 
-      RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-        -H "Authorization: Bearer $TOKEN" \
-        -H "Content-Type: application/json" \
-        --data "$FULL_PAYLOAD" \
-        "$API_BASE")
+            # Extract pipeline resource inside ARM template
+            PIPELINE_RESOURCE=$(echo "$PIPELINE_JSON_CONTENT" | jq '.resources[0]')
 
-      HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-      BODY_RESP=$(echo "$RESPONSE" | sed '$d')
+            if [ "$PIPELINE_RESOURCE" == "null" ] || [ -z "$PIPELINE_RESOURCE" ]; then
+              echo "❌ No pipeline resource found inside $PIPELINE_JSON_FILE. Skipping."
+              continue
+            fi
 
-      echo "Response code: $HTTP_CODE"
-      echo "Response body: $BODY_RESP"
+            ACTIVITIES_COUNT=$(echo "$PIPELINE_RESOURCE" | jq '.properties.activities | length // 0')
 
-      if [[ "$HTTP_CODE" =~ ^2 ]]; then
-        echo "✅ Successfully created pipeline: $PIPELINE_NAME"
-      else
-        echo "❌ Failed to create pipeline: $PIPELINE_NAME"
-        exit 1
-      fi
-    done
+            if [ "$ACTIVITIES_COUNT" -eq 0 ]; then
+              echo "❌ No activities found in pipeline resource inside $PIPELINE_JSON_FILE. Skipping."
+              continue
+            fi
+
+            echo "📄 Encoding manifest.json and pipeline resource..."
+
+            # Read manifest.json as compact JSON
+            MANIFEST_CONTENT=$(jq -c '.' "$MANIFEST_FILE")
+
+            # Build the combined payload with manifest and pipeline definition
+            FULL_PAYLOAD=$(jq -n \
+              --arg dn "$PIPELINE_NAME" \
+              --argjson manifest "$MANIFEST_CONTENT" \
+              --argjson def "$PIPELINE_RESOURCE" \
+              '{
+                displayName: $dn,
+                type: "Pipeline",
+                createItemRequest: {
+                  manifest: $manifest,
+                  definition: $def
+                }
+              }')
+
+            echo "🧩 Payload to API:"
+            echo "$FULL_PAYLOAD" | jq .
+
+            echo "🆕 Creating new pipeline $PIPELINE_NAME..."
+
+            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Content-Type: application/json" \
+              --data "$FULL_PAYLOAD" \
+              "$API_BASE")
+
+            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+            BODY_RESP=$(echo "$RESPONSE" | sed '$d')
+
+            echo "Response code: $HTTP_CODE"
+            echo "Response body: $BODY_RESP"
+
+            if [[ "$HTTP_CODE" =~ ^2 ]]; then
+              echo "✅ Successfully created pipeline: $PIPELINE_NAME"
+            else
+              echo "❌ Failed to create pipeline: $PIPELINE_NAME"
+              exit 1
+            fi
+          done
