@@ -32,7 +32,6 @@ jobs:
             -d "client_secret=${{ env.CLIENT_SECRET }}" \
             -d "scope=https://api.fabric.microsoft.com/.default" \
             "https://login.microsoftonline.com/${{ env.TENANT_ID }}/oauth2/v2.0/token")
-
           ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
           if [[ -z "$ACCESS_TOKEN" || "$ACCESS_TOKEN" == "null" ]]; then
             echo "❌ Failed to retrieve access token."
@@ -46,11 +45,9 @@ jobs:
           WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
         run: |
           set -euo pipefail
-
           echo "🔎 Finding pipeline folders..."
           API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
           PIPELINE_FOLDERS=$(find deploy/pipeline -mindepth 1 -maxdepth 1 -type d || true)
-
           if [ -z "$PIPELINE_FOLDERS" ]; then
             echo "No pipeline folders found."
             exit 0
@@ -58,7 +55,6 @@ jobs:
 
           for PIPELINE_FOLDER in $PIPELINE_FOLDERS; do
             PIPELINE_NAME=$(basename "$PIPELINE_FOLDER")
-
             MANIFEST_FILE="$PIPELINE_FOLDER/manifest.json"
             PIPELINE_JSON_FILE="$PIPELINE_FOLDER/${PIPELINE_NAME}.json"
 
@@ -66,7 +62,6 @@ jobs:
               echo "⚠️ Skipping $PIPELINE_NAME - manifest.json not found"
               continue
             fi
-
             if [ ! -f "$PIPELINE_JSON_FILE" ]; then
               echo "⚠️ Skipping $PIPELINE_NAME - ${PIPELINE_NAME}.json not found"
               continue
@@ -74,23 +69,18 @@ jobs:
 
             echo "📦 Processing pipeline: $PIPELINE_NAME"
 
-            # Read manifest content JSON
             MANIFEST_CONTENT=$(cat "$MANIFEST_FILE" | jq '.')
-
-            # Read pipeline JSON
             PIPELINE_CONTENT=$(cat "$PIPELINE_JSON_FILE" | jq '.')
 
-            # Extract first resource (pipeline resource)
-            PIPELINE_RESOURCE=$(echo "$PIPELINE_CONTENT" | jq '.resources[0]')
-
-            if [ "$PIPELINE_RESOURCE" == "null" ]; then
-              echo "❌ No pipeline resource found in $PIPELINE_JSON_FILE"
+            # Extract pipeline resource by type "pipelines"
+            PIPELINE_RESOURCE=$(echo "$PIPELINE_CONTENT" | jq '.resources[] | select(.type=="pipelines")')
+            if [ -z "$PIPELINE_RESOURCE" ] || [ "$PIPELINE_RESOURCE" == "null" ]; then
+              echo "❌ No pipeline resource with type 'pipelines' found in $PIPELINE_JSON_FILE"
               exit 1
             fi
 
-            # Extract properties from the pipeline resource
+            # Extract properties and activities
             PROPERTIES=$(echo "$PIPELINE_RESOURCE" | jq '.properties')
-
             ACTIVITIES=$(echo "$PROPERTIES" | jq '.activities')
             if [ "$ACTIVITIES" == "null" ] || [ "$(echo "$ACTIVITIES" | jq 'length')" -eq 0 ]; then
               echo "❌ No activities found in $PIPELINE_JSON_FILE - skipping."
@@ -100,7 +90,7 @@ jobs:
             LAST_MODIFIED=$(echo "$PROPERTIES" | jq -r '.lastModifiedByObjectId // empty')
             LAST_PUBLISH=$(echo "$PROPERTIES" | jq -r '.lastPublishTime // empty')
 
-            # Build definition JSON with activities and metadata at top-level (not nested in properties)
+            # Build definition payload with activities and metadata at top-level
             DEFINITION_PAYLOAD=$(jq -n \
               --argjson activities "$ACTIVITIES" \
               --arg lastModified "$LAST_MODIFIED" \
@@ -115,16 +105,12 @@ jobs:
             echo "🔎 Checking if pipeline $PIPELINE_NAME already exists..."
             EXISTING_ITEM_ID=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
               jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n 1)
-
             if [ -n "$EXISTING_ITEM_ID" ]; then
               echo "⚠️ Pipeline $PIPELINE_NAME already exists (ID: $EXISTING_ITEM_ID), skipping creation."
               continue
             fi
 
             echo "📄 Encoding JSON files..."
-            # Encode manifest and definition JSON for payload
-            # (Not base64, direct JSON inclusion)
-
             echo "🧩 Building payload with both JSON files..."
             FULL_PAYLOAD=$(jq -n \
               --arg dn "$PIPELINE_NAME" \
@@ -148,10 +134,8 @@ jobs:
               -H "Content-Type: application/json" \
               --data "$FULL_PAYLOAD" \
               "$API_BASE")
-
             HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
             BODY_RESP=$(echo "$RESPONSE" | sed '$d')
-
             echo "Response code: $HTTP_CODE"
             echo "Response body: $BODY_RESP"
 
@@ -161,5 +145,4 @@ jobs:
               echo "❌ Failed to create pipeline: $PIPELINE_NAME"
               exit 1
             fi
-
           done
