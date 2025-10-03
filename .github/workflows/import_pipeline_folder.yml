@@ -1,100 +1,119 @@
-name: Import Pipeline Using Manifest Only
+name: Import Microsoft Fabric Pipelines
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - 'deploy/pipeline/**/manifest.json'
 
 env:
-  TENANT_ID: ${{ secrets.TENANT_ID }}
   CLIENT_ID: ${{ secrets.CLIENT_ID }}
+  TENANT_ID: ${{ secrets.TENANT_ID }}
   CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
-  WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
+  FABRIC_WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
 
 jobs:
-  import-pipeline:
+  import-pipelines:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y jq curl
 
-      - name: Get Microsoft Fabric Access Token
+      - name: Get Azure AD access token
         id: get_token
         run: |
           set -euo pipefail
+
           echo "🔐 Requesting access token..."
           RESPONSE=$(curl -s -X POST -H "Content-Type: application/x-www-form-urlencoded" \
             -d "grant_type=client_credentials" \
             -d "client_id=${{ env.CLIENT_ID }}" \
             -d "client_secret=${{ env.CLIENT_SECRET }}" \
-            -d "scope=https://api.fabric.microsoft.com/.default" \
+            -d "scope=https://analysis.windows.net/powerbi/api/.default" \
             "https://login.microsoftonline.com/${{ env.TENANT_ID }}/oauth2/v2.0/token")
+
           ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
-          if [[ -z "$ACCESS_TOKEN" || "$ACCESS_TOKEN" == "null" ]]; then
-            echo "❌ Failed to retrieve access token. Response was:"
+
+          if [ -z "$ACCESS_TOKEN" ] || [ "$ACCESS_TOKEN" == "null" ]; then
+            echo "❌ Failed to retrieve access token."
             echo "$RESPONSE"
             exit 1
           fi
+
           echo "✅ Access token retrieved."
           echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
 
-      - name: Create pipelines from manifest.json only
+      - name: Import all pipelines from deploy/pipeline
         env:
           TOKEN: ${{ env.ACCESS_TOKEN }}
-          WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
+          WORKSPACE_ID: ${{ env.FABRIC_WORKSPACE_ID }}
         run: |
           set -euo pipefail
 
-          API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
-          echo "🔎 Searching for manifest.json files..."
+          BASE_DIR="deploy/pipeline"
 
-          MANIFEST_FILES=$(find deploy/pipeline -name 'manifest.json' || true)
-
-          if [ -z "$MANIFEST_FILES" ]; then
-            echo "ℹ️ No manifest.json files found; exiting."
-            exit 0
+          if [ ! -d "$BASE_DIR" ]; then
+            echo "❌ Pipeline directory '$BASE_DIR' not found."
+            exit 1
           fi
 
-          for MANIFEST_FILE in $MANIFEST_FILES; do
-            PIPELINE_FOLDER=$(dirname "$MANIFEST_FILE")
+          # Iterate over all pipeline folders
+          for PIPELINE_FOLDER in "$BASE_DIR"/*/; do
+            PIPELINE_FOLDER=${PIPELINE_FOLDER%/} # remove trailing slash
             PIPELINE_NAME=$(basename "$PIPELINE_FOLDER")
+            MANIFEST_FILE="$PIPELINE_FOLDER/manifest.json"
+            PIPELINE_JSON_FILE="$PIPELINE_FOLDER/${PIPELINE_NAME}.json"
 
-            echo "📦 Processing pipeline manifest: $MANIFEST_FILE"
+            echo "📦 Processing pipeline folder: $PIPELINE_NAME"
 
-            # Read manifest content
-            MANIFEST_CONTENT=$(jq '.' "$MANIFEST_FILE")
+            if [ ! -f "$MANIFEST_FILE" ]; then
+              echo "⚠️ manifest.json not found in $PIPELINE_FOLDER, skipping."
+              continue
+            fi
 
-            # Extract displayName from manifest or fallback to folder name
-            DISPLAY_NAME=$(echo "$MANIFEST_CONTENT" | jq -r '.displayName // "'"$PIPELINE_NAME"'"')
+            if [ ! -f "$PIPELINE_JSON_FILE" ]; then
+              echo "⚠️ Pipeline JSON file $PIPELINE_NAME.json not found in $PIPELINE_FOLDER, skipping."
+              continue
+            fi
 
-            # Check if pipeline already exists (by displayName)
-            echo "🔍 Checking if pipeline '$DISPLAY_NAME' exists..."
+            MANIFEST=$(jq '.' "$MANIFEST_FILE")
+            PIPELINE_DATA=$(jq '.' "$PIPELINE_JSON_FILE")
+
+            PIPELINE_RESOURCE=$(echo "$PIPELINE_DATA" | jq '.resources[] | select(.type == "pipelines")')
+            if [ -z "$PIPELINE_RESOURCE" ] || [ "$PIPELINE_RESOURCE" == "null" ]; then
+              echo "❌ No pipeline resource of type 'pipelines' found in $PIPELINE_JSON_FILE, skipping."
+              continue
+            fi
+
+            PROPERTIES=$(echo "$PIPELINE_RESOURCE" | jq '.properties')
+
+            DISPLAY_NAME=$(echo "$MANIFEST" | jq -r '.displayName // "'$PIPELINE_NAME'"')
+
+            echo "🚀 Importing pipeline: $DISPLAY_NAME"
+
+            API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
+
             EXISTS=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
               jq -r --arg dn "$DISPLAY_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n1)
 
             if [ -n "$EXISTS" ]; then
-              echo "⚠️ Pipeline $DISPLAY_NAME already exists (ID: $EXISTS). Skipping creation."
+              echo "⚠️ Pipeline '$DISPLAY_NAME' already exists (ID: $EXISTS). Skipping creation."
               continue
             fi
 
-            # Compose create payload with manifest only (empty definition)
             CREATE_PAYLOAD=$(jq -n \
               --arg dn "$DISPLAY_NAME" \
-              --argjson manifest "$MANIFEST_CONTENT" \
+              --argjson manifest "$MANIFEST" \
+              --argjson properties "$PROPERTIES" \
               '{
                 displayName: $dn,
                 type: "Pipeline",
                 createItemRequest: {
                   manifest: $manifest,
-                  definition: {}
+                  definition: { properties: $properties }
                 }
               }')
-
-            echo "🚀 Creating pipeline from manifest: $DISPLAY_NAME"
 
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
               -H "Authorization: Bearer $TOKEN" \
@@ -109,9 +128,9 @@ jobs:
             echo "Response body: $BODY"
 
             if [[ "$HTTP_CODE" =~ ^2 ]]; then
-              echo "✅ Successfully created pipeline: $DISPLAY_NAME"
+              echo "✅ Pipeline '$DISPLAY_NAME' imported successfully."
             else
-              echo "❌ Failed to create pipeline: $DISPLAY_NAME"
+              echo "❌ Failed to import pipeline '$DISPLAY_NAME'."
               exit 1
             fi
           done
