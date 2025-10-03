@@ -1,4 +1,4 @@
-name: Import Pipelines with Full Properties at Creation
+name: Import Full Pipelines from Exported JSON
 
 on:
   workflow_dispatch:
@@ -15,7 +15,6 @@ env:
 jobs:
   import-pipelines:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -43,7 +42,7 @@ jobs:
           echo "✅ Access token retrieved."
           echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
 
-      - name: Create pipelines with full properties at once
+      - name: Create pipelines with full exported JSON
         env:
           TOKEN: ${{ env.ACCESS_TOKEN }}
           WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
@@ -51,63 +50,62 @@ jobs:
           set -euo pipefail
 
           API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
-          echo "🔎 Looking for pipeline folders..."
-          PIPELINE_FOLDERS=$(find deploy/pipeline -mindepth 1 -maxdepth 1 -type d || true)
+          echo "🔎 Looking for pipeline JSON files..."
 
-          if [ -z "$PIPELINE_FOLDERS" ]; then
-            echo "ℹ️ No pipeline folders found; exiting."
+          PIPELINE_JSON_FILES=$(find deploy/pipeline -name '*.json' -not -name 'manifest.json' || true)
+
+          if [ -z "$PIPELINE_JSON_FILES" ]; then
+            echo "ℹ️ No pipeline JSON files found; exiting."
             exit 0
           fi
 
-          for PIPELINE_FOLDER in $PIPELINE_FOLDERS; do
-            PIPELINE_NAME=$(basename "$PIPELINE_FOLDER")
-            MANIFEST_FILE="$PIPELINE_FOLDER/manifest.json"
-            PIPELINE_JSON_FILE="$PIPELINE_FOLDER/${PIPELINE_NAME}.json"
+          for PIPELINE_JSON_FILE in $PIPELINE_JSON_FILES; do
+            PIPELINE_FOLDER=$(dirname "$PIPELINE_JSON_FILE")
+            PIPELINE_NAME=$(basename "$PIPELINE_JSON_FILE" .json)
 
-            echo "📦 Processing pipeline: $PIPELINE_NAME"
+            echo "📦 Processing pipeline JSON: $PIPELINE_JSON_FILE"
 
-            if [ ! -f "$MANIFEST_FILE" ]; then
-              echo "⚠️ Skipping $PIPELINE_NAME — manifest.json not found"
+            # Read full exported JSON
+            FULL_PIPELINE_JSON=$(cat "$PIPELINE_JSON_FILE")
+
+            # Extract displayName from top-level or fallback to filename
+            DISPLAY_NAME=$(echo "$FULL_PIPELINE_JSON" | jq -r '.displayName // .name // "'"$PIPELINE_NAME"'"')
+
+            # Extract manifest
+            MANIFEST=$(echo "$FULL_PIPELINE_JSON" | jq '.manifest')
+            if [ "$MANIFEST" == "null" ]; then
+              echo "⚠️ manifest not found in $PIPELINE_JSON_FILE, skipping."
               continue
             fi
 
-            if [ ! -f "$PIPELINE_JSON_FILE" ]; then
-              echo "⚠️ Skipping $PIPELINE_NAME — ${PIPELINE_NAME}.json not found"
-              continue
-            fi
-
-            # Read manifest and full pipeline JSON (which includes full properties)
-            MANIFEST_CONTENT=$(jq '.' "$MANIFEST_FILE")
-            FULL_PIPELINE_JSON=$(jq '.' "$PIPELINE_JSON_FILE")
-
-            # Extract pipeline resource (type == "pipelines")
+            # Extract pipeline resource of type 'pipelines'
             PIPELINE_RESOURCE=$(echo "$FULL_PIPELINE_JSON" | jq '.resources[] | select(.type == "pipelines")')
             if [ -z "$PIPELINE_RESOURCE" ] || [ "$PIPELINE_RESOURCE" == "null" ]; then
-              echo "❌ No pipeline resource of type 'pipelines' found in $PIPELINE_JSON_FILE. Skipping."
+              echo "⚠️ No resource of type 'pipelines' found in $PIPELINE_JSON_FILE, skipping."
               continue
             fi
 
             # Extract full properties object
             FULL_PROPERTIES=$(echo "$PIPELINE_RESOURCE" | jq '.properties')
             if [ "$FULL_PROPERTIES" == "null" ]; then
-              echo "❌ No properties found in pipeline resource. Skipping."
+              echo "⚠️ No properties found in pipeline resource, skipping."
               continue
             fi
 
             # Check if pipeline already exists (by displayName)
-            echo "🔍 Checking if pipeline '$PIPELINE_NAME' exists..."
+            echo "🔍 Checking if pipeline '$DISPLAY_NAME' exists..."
             EXISTS=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
-              jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n1)
+              jq -r --arg dn "$DISPLAY_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n1)
 
             if [ -n "$EXISTS" ]; then
-              echo "⚠️ Pipeline $PIPELINE_NAME already exists (ID: $EXISTS). Skipping creation."
+              echo "⚠️ Pipeline $DISPLAY_NAME already exists (ID: $EXISTS). Skipping creation."
               continue
             fi
 
-            # Compose full create payload including full properties inside definition
+            # Compose full create payload including manifest and full properties
             CREATE_PAYLOAD=$(jq -n \
-              --arg dn "$PIPELINE_NAME" \
-              --argjson manifest "$MANIFEST_CONTENT" \
+              --arg dn "$DISPLAY_NAME" \
+              --argjson manifest "$MANIFEST" \
               --argjson properties "$FULL_PROPERTIES" \
               '{
                 displayName: $dn,
@@ -118,8 +116,7 @@ jobs:
                 }
               }')
 
-            echo "🚀 Creating pipeline with full properties: $PIPELINE_NAME"
-            # Optional: echo "$CREATE_PAYLOAD" | jq .
+            echo "🚀 Creating pipeline with full properties: $DISPLAY_NAME"
 
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
               -H "Authorization: Bearer $TOKEN" \
@@ -134,9 +131,9 @@ jobs:
             echo "Response body: $BODY"
 
             if [[ "$HTTP_CODE" =~ ^2 ]]; then
-              echo "✅ Successfully created pipeline: $PIPELINE_NAME"
+              echo "✅ Successfully created pipeline: $DISPLAY_NAME"
             else
-              echo "❌ Failed to create pipeline: $PIPELINE_NAME"
+              echo "❌ Failed to create pipeline: $DISPLAY_NAME"
               exit 1
             fi
           done
