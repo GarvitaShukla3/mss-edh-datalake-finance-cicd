@@ -1,10 +1,11 @@
-name: Import Pipelines
+name: Insert Pipelines If Not Exist (with both JSONs)
 
 on:
   workflow_dispatch:
   push:
     paths:
       - 'deploy/pipeline/**/*.json'
+      - 'deploy/pipeline/**/manifest.json'
 
 env:
   TENANT_ID: ${{ secrets.TENANT_ID }}
@@ -13,7 +14,7 @@ env:
   WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
 
 jobs:
-  import-pipelines:
+  insert-pipelines:
     runs-on: ubuntu-latest
 
     steps:
@@ -34,10 +35,7 @@ jobs:
             -d "client_id=${{ env.CLIENT_ID }}" \
             -d "client_secret=${{ env.CLIENT_SECRET }}" \
             -d "scope=https://api.fabric.microsoft.com/.default" \
-            "https://login.microsoftonline.com/${{ env.TENANT_ID }}/oauth2/v2.0/token") || {
-              echo "❌ Failed to call token endpoint"
-              exit 1
-          }
+            "https://login.microsoftonline.com/${{ env.TENANT_ID }}/oauth2/v2.0/token")
 
           ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
           if [[ -z "$ACCESS_TOKEN" || "$ACCESS_TOKEN" == "null" ]]; then
@@ -49,7 +47,7 @@ jobs:
           echo "✅ Access token retrieved."
           echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
 
-      - name: Import pipelines from JSON folders
+      - name: Insert pipelines if not exist
         env:
           TOKEN: ${{ env.ACCESS_TOKEN }}
           WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
@@ -69,33 +67,51 @@ jobs:
           for PIPELINE_FOLDER in $PIPELINE_FOLDERS; do
             PIPELINE_NAME=$(basename "$PIPELINE_FOLDER")
 
-            PIPELINE_JSON_FILE="$PIPELINE_FOLDER/${PIPELINE_NAME}.json"
             MANIFEST_FILE="$PIPELINE_FOLDER/manifest.json"
+            PIPELINE_JSON_FILE="$PIPELINE_FOLDER/${PIPELINE_NAME}.json"
 
             echo "📦 Processing pipeline: $PIPELINE_NAME"
+
+            # Check if both JSON files exist
+            if [ ! -f "$MANIFEST_FILE" ]; then
+              echo "⚠️ Skipping $PIPELINE_NAME - manifest.json not found"
+              continue
+            fi
 
             if [ ! -f "$PIPELINE_JSON_FILE" ]; then
               echo "⚠️ Skipping $PIPELINE_NAME - ${PIPELINE_NAME}.json not found"
               continue
             fi
 
-            if [ ! -f "$MANIFEST_FILE" ]; then
-              echo "⚠️ Skipping $PIPELINE_NAME - manifest.json not found"
+            echo "🔎 Checking if pipeline $PIPELINE_NAME already exists..."
+            EXISTING_ITEM_ID=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
+              jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n 1)
+
+            if [ -n "$EXISTING_ITEM_ID" ]; then
+              echo "ℹ️ Pipeline $PIPELINE_NAME already exists (ID: $EXISTING_ITEM_ID). Skipping creation."
               continue
             fi
 
-            # Base64 encode full pipeline JSON file content
-            echo "🔄 Encoding pipeline JSON file..."
+            echo "📄 Encoding JSON files..."
+
+            MANIFEST_BASE64=$(base64 -w 0 "$MANIFEST_FILE") || {
+              echo "❌ Failed to base64 encode $MANIFEST_FILE"
+              exit 1
+            }
+
             PIPELINE_JSON_BASE64=$(base64 -w 0 "$PIPELINE_JSON_FILE") || {
               echo "❌ Failed to base64 encode $PIPELINE_JSON_FILE"
               exit 1
             }
 
-            # Build full payload with definition as base64 encoded JSON
+            echo "🧩 Building payload with both JSON files..."
+
             FULL_PAYLOAD=$(jq -n \
               --arg dn "$PIPELINE_NAME" \
-              --arg fn "${PIPELINE_NAME}.json" \
-              --arg payload "$PIPELINE_JSON_BASE64" \
+              --arg mf "manifest.json" \
+              --arg mf_payload "$MANIFEST_BASE64" \
+              --arg pj "${PIPELINE_NAME}.json" \
+              --arg pj_payload "$PIPELINE_JSON_BASE64" \
               '{
                 displayName: $dn,
                 type: "Pipeline",
@@ -103,8 +119,13 @@ jobs:
                   format: "json",
                   parts: [
                     {
-                      path: $fn,
-                      payload: $payload,
+                      path: $mf,
+                      payload: $mf_payload,
+                      payloadType: "InlineBase64"
+                    },
+                    {
+                      path: $pj,
+                      payload: $pj_payload,
                       payloadType: "InlineBase64"
                     }
                   ]
@@ -114,60 +135,15 @@ jobs:
                 exit 1
               }
 
-            echo "🧪 Payload to API:"
-            echo "$FULL_PAYLOAD" | jq . || true
-
-            echo "🔎 Checking if pipeline exists..."
-            EXISTING_ITEM_ID=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" || {
-              echo "❌ Failed to get existing pipelines list"
-              exit 1
-            } | jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n 1) || {
-              echo "❌ Failed to parse existing pipeline IDs"
-              exit 1
-            }
-
-            if [ -n "$EXISTING_ITEM_ID" ]; then
-              echo "🔄 Updating existing pipeline $PIPELINE_NAME (ID: $EXISTING_ITEM_ID)..."
-
-              UPDATE_PAYLOAD=$(jq -n \
-                --arg fn "${PIPELINE_NAME}.json" \
-                --arg payload "$PIPELINE_JSON_BASE64" \
-                '{
-                  definition: {
-                    format: "json",
-                    parts: [
-                      {
-                        path: $fn,
-                        payload: $payload,
-                        payloadType: "InlineBase64"
-                      }
-                    ]
-                  }
-                }') || {
-                  echo "❌ Failed to build update payload for $PIPELINE_NAME"
-                  exit 1
-                }
-
-              RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-                -H "Authorization: Bearer $TOKEN" \
-                -H "Content-Type: application/json" \
-                --data "$UPDATE_PAYLOAD" \
-                "$API_BASE/$EXISTING_ITEM_ID/updateDefinition") || {
-                  echo "❌ API request to update pipeline $PIPELINE_NAME failed"
-                  exit 1
-                }
-            else
-              echo "🆕 Creating new pipeline $PIPELINE_NAME..."
-
-              RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-                -H "Authorization: Bearer $TOKEN" \
-                -H "Content-Type: application/json" \
-                --data "$FULL_PAYLOAD" \
-                "$API_BASE") || {
-                  echo "❌ API request to create pipeline $PIPELINE_NAME failed"
-                  exit 1
-                }
-            fi
+            echo "🆕 Creating new pipeline $PIPELINE_NAME..."
+            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Content-Type: application/json" \
+              --data "$FULL_PAYLOAD" \
+              "$API_BASE") || {
+                echo "❌ API request to create pipeline $PIPELINE_NAME failed"
+                exit 1
+              }
 
             HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
             BODY_RESP=$(echo "$RESPONSE" | sed '$d')
@@ -176,11 +152,9 @@ jobs:
             echo "Response body: $BODY_RESP"
 
             if [[ "$HTTP_CODE" =~ ^2 ]]; then
-              echo "✅ Successfully processed pipeline: $PIPELINE_NAME"
+              echo "✅ Successfully created pipeline: $PIPELINE_NAME"
             else
-              echo "❌ Failed to process pipeline: $PIPELINE_NAME"
-              echo "Full response was:"
-              echo "$BODY_RESP"
+              echo "❌ Failed to create pipeline: $PIPELINE_NAME"
               exit 1
             fi
           done
