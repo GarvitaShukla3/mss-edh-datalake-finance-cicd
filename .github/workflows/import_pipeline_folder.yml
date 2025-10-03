@@ -87,7 +87,7 @@ jobs:
               continue
             fi
 
-            # Extract the full 'properties' object
+            # Extract full 'properties' field
             PROPERTIES=$(echo "$PIPELINE_RESOURCE" | jq '.properties')
             if [ "$PROPERTIES" == "null" ] || [ "$(echo "$PROPERTIES" | jq 'length')" -eq 0 ]; then
               echo "❌ No 'properties' found for $PIPELINE_NAME. Skipping."
@@ -127,7 +127,7 @@ jobs:
               exit 1
             fi
 
-            # Step 2: Update full definition using 'properties' from JSON
+            # Step 2: Retry loop to update definition
             echo "📥 Updating pipeline definition for: $PIPELINE_NAME"
 
             DEFINITION_PAYLOAD=$(jq -n \
@@ -136,20 +136,34 @@ jobs:
 
             DEFINITION_URL="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items/${NEW_PIPELINE_ID}/definition"
 
-            UPDATE_RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT \
-              -H "Authorization: Bearer $TOKEN" \
-              -H "Content-Type: application/json" \
-              --data "$DEFINITION_PAYLOAD" \
-              "$DEFINITION_URL")
+            MAX_RETRIES=5
+            RETRY_DELAY=5
+            SUCCESS=false
 
-            UPDATE_HTTP_CODE=$(echo "$UPDATE_RESPONSE" | tail -n1)
-            UPDATE_BODY=$(echo "$UPDATE_RESPONSE" | sed '$d')
+            for i in $(seq 1 $MAX_RETRIES); do
+              echo "⏳ Attempt $i to update definition..."
+              UPDATE_RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT \
+                -H "Authorization: Bearer $TOKEN" \
+                -H "Content-Type: application/json" \
+                --data "$DEFINITION_PAYLOAD" \
+                "$DEFINITION_URL")
 
-            if [[ "$UPDATE_HTTP_CODE" =~ ^2 ]]; then
-              echo "✅ Successfully updated pipeline definition: $PIPELINE_NAME"
-            else
-              echo "❌ Failed to update definition for $PIPELINE_NAME"
-              echo "$UPDATE_BODY"
+              UPDATE_HTTP_CODE=$(echo "$UPDATE_RESPONSE" | tail -n1)
+              UPDATE_BODY=$(echo "$UPDATE_RESPONSE" | sed '$d')
+
+              if [[ "$UPDATE_HTTP_CODE" =~ ^2 ]]; then
+                echo "✅ Successfully updated pipeline definition: $PIPELINE_NAME"
+                SUCCESS=true
+                break
+              else
+                echo "⚠️ Failed attempt $i to update definition. HTTP $UPDATE_HTTP_CODE"
+                echo "$UPDATE_BODY"
+                sleep $RETRY_DELAY
+              fi
+            done
+
+            if [ "$SUCCESS" = false ]; then
+              echo "❌ Failed to update definition for $PIPELINE_NAME after $MAX_RETRIES attempts"
               exit 1
             fi
 
