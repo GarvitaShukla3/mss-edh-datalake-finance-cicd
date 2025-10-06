@@ -1,4 +1,4 @@
-name: Import Microsoft Fabric Pipelines
+name: Deploy Microsoft Fabric Pipelines via Git Sync
 
 on:
   workflow_dispatch:
@@ -8,14 +8,18 @@ env:
   TENANT_ID: ${{ secrets.TENANT_ID }}
   CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
   FABRIC_WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
+  GITHUB_REPOSITORY: mss-edh-datalake-finance-cicd
+  GITHUB_REF: deploy/pipeline
 
 jobs:
-  import-pipelines:
+  deploy-pipelines:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch full history to get commit SHA
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y jq curl
@@ -23,8 +27,6 @@ jobs:
       - name: Get Azure AD access token
         id: get_token
         run: |
-          set -euo pipefail
-
           echo "🔐 Requesting access token..."
           RESPONSE=$(curl -s -X POST -H "Content-Type: application/x-www-form-urlencoded" \
             -d "grant_type=client_credentials" \
@@ -42,95 +44,52 @@ jobs:
           fi
 
           echo "✅ Access token retrieved."
-          echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
+          echo "access_token=$ACCESS_TOKEN" >> $GITHUB_OUTPUT
 
-      - name: Import all pipelines from deploy/pipeline
+      - name: Get latest commit SHA from repo
+        id: get_commit
+        run: echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Trigger updateFromGit API
         env:
-          TOKEN: ${{ env.ACCESS_TOKEN }}
+          TOKEN: ${{ steps.get_token.outputs.access_token }}
           WORKSPACE_ID: ${{ env.FABRIC_WORKSPACE_ID }}
         run: |
           set -euo pipefail
 
-          BASE_DIR="deploy/pipeline"
+          COMMIT_SHA=${{ steps.get_commit.outputs.commit_sha }}
 
-          if [ ! -d "$BASE_DIR" ]; then
-            echo "❌ Pipeline directory '$BASE_DIR' not found."
+          echo "🚀 Triggering updateFromGit with commit SHA: $COMMIT_SHA"
+
+          API_URL="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/git/updateFromGit"
+
+          PAYLOAD=$(jq -n \
+            --arg sha "$COMMIT_SHA" \
+            '{
+              remoteCommitHash: $sha,
+              conflictResolution: {
+                conflictResolutionType: "Workspace",
+                conflictResolutionPolicy: "PreferRemote"
+              },
+              options: {
+                allowOverrideItems: true
+              }
+            }')
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$API_URL" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response Body: $BODY"
+
+          if [[ "$HTTP_CODE" =~ ^2 ]]; then
+            echo "✅ updateFromGit succeeded!"
+          else
+            echo "❌ updateFromGit failed."
             exit 1
           fi
-
-          # Iterate over all pipeline folders
-          for PIPELINE_FOLDER in "$BASE_DIR"/*/; do
-            PIPELINE_FOLDER=${PIPELINE_FOLDER%/} # remove trailing slash
-            PIPELINE_NAME=$(basename "$PIPELINE_FOLDER")
-            MANIFEST_FILE="$PIPELINE_FOLDER/manifest.json"
-            PIPELINE_JSON_FILE="$PIPELINE_FOLDER/${PIPELINE_NAME}.json"
-
-            echo "📦 Processing pipeline folder: $PIPELINE_NAME"
-
-            if [ ! -f "$MANIFEST_FILE" ]; then
-              echo "⚠️ manifest.json not found in $PIPELINE_FOLDER, skipping."
-              continue
-            fi
-
-            if [ ! -f "$PIPELINE_JSON_FILE" ]; then
-              echo "⚠️ Pipeline JSON file $PIPELINE_NAME.json not found in $PIPELINE_FOLDER, skipping."
-              continue
-            fi
-
-            MANIFEST=$(jq '.' "$MANIFEST_FILE")
-            PIPELINE_DATA=$(jq '.' "$PIPELINE_JSON_FILE")
-
-            PIPELINE_RESOURCE=$(echo "$PIPELINE_DATA" | jq '.resources[] | select(.type == "pipelines")')
-            if [ -z "$PIPELINE_RESOURCE" ] || [ "$PIPELINE_RESOURCE" == "null" ]; then
-              echo "❌ No pipeline resource of type 'pipelines' found in $PIPELINE_JSON_FILE, skipping."
-              continue
-            fi
-
-            PROPERTIES=$(echo "$PIPELINE_RESOURCE" | jq '.properties')
-
-            DISPLAY_NAME=$(echo "$MANIFEST" | jq -r '.displayName // "'$PIPELINE_NAME'"')
-
-            echo "🚀 Importing pipeline: $DISPLAY_NAME"
-
-            API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
-
-            EXISTS=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
-              jq -r --arg dn "$DISPLAY_NAME" '.value[] | select(.displayName == $dn and .type == "Pipeline") | .id' | head -n1)
-
-            if [ -n "$EXISTS" ]; then
-              echo "⚠️ Pipeline '$DISPLAY_NAME' already exists (ID: $EXISTS). Skipping creation."
-              continue
-            fi
-
-            CREATE_PAYLOAD=$(jq -n \
-              --arg dn "$DISPLAY_NAME" \
-              --argjson manifest "$MANIFEST" \
-              --argjson properties "$PROPERTIES" \
-              '{
-                displayName: $dn,
-                type: "Pipeline",
-                manifest: $manifest,
-                createItemRequest:{
-                  definition: { properties: $properties }
-                }
-              }')
-
-            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-              -H "Authorization: Bearer $TOKEN" \
-              -H "Content-Type: application/json" \
-              --data "$CREATE_PAYLOAD" \
-              "$API_BASE")
-
-            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-            BODY=$(echo "$RESPONSE" | sed '$d')
-
-            echo "Response HTTP code: $HTTP_CODE"
-            echo "Response body: $BODY"
-
-            if [[ "$HTTP_CODE" =~ ^2 ]]; then
-              echo "✅ Pipeline '$DISPLAY_NAME' imported successfully."
-            else
-              echo "❌ Failed to import pipeline '$DISPLAY_NAME'."
-              exit 1
-            fi
-          done
