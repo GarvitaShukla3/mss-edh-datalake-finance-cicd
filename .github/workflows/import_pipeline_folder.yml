@@ -109,10 +109,12 @@ jobs:
               '{
                 displayName: $dn,
                 type: "Pipeline",
-                createItemRequest: {
-                  manifest: $manifest,
-                  definition: { properties: $properties }
-                }
+                manifest: $manifest,
+                definition: { properties: $properties }
+                # createItemRequest: {
+                #   manifest: $manifest,
+                #   definition: { properties: $properties }
+                # }
               }')
 
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
