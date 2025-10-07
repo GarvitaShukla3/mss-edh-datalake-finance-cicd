@@ -68,10 +68,10 @@ jobs:
 
               if [[ -f "$manifest_file" && -f "$pipeline_file" ]]; then
                 echo "Deploying manifest.json for $pipeline_name"
-                fab import pipeline "$manifest_file"
+                fab import pip.Pipeline -i "$manifest_file" -f
 
                 echo "Deploying ${pipeline_name}.json for $pipeline_name"
-                fab import pipeline "$pipeline_file"
+                fab import pip.Pipeline -i "$pipeline_file" -f
               else
                 echo "Skipping $pipeline_name: missing required JSON files."
               fi
