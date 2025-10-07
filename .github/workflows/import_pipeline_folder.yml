@@ -1,4 +1,4 @@
-name: Deploy Fabric Pipelines
+name: MS Fabric CLI Workflow
 
 on:
   push:
@@ -7,74 +7,35 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy:
+  run-fabric-cli:
     runs-on: ubuntu-latest
+    env:
+      CLIENT_ID: ${{ secrets.CLIENT_ID }}
+      CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+      TENANT_ID: ${{ secrets.TENANT_ID }}
+      FABRIC_WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
 
     steps:
-    - name: Checkout repo
-      uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y jq curl python3 python3-pip
+      - name: Set up Node.js (if Fabric CLI is npm-based)
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18' # or whichever version you need
 
-    - name: Install Fabric CLI using pip
-      run: |
-        python3 -m pip install --upgrade pip
-        pip install fabric-cli
+      - name: Install MS Fabric CLI
+        run: npm install -g @microsoft/fabric-cli
 
-    - name: Add ~/.local/bin to PATH
-      run: echo "${HOME}/.local/bin" >> $GITHUB_PATH
+      - name: Login to Azure using service principal
+        run: |
+          az login --service-principal -u $CLIENT_ID -p $CLIENT_SECRET --tenant $TENANT_ID
 
-    - name: Verify fabric CLI install
-      run: |
-        fab --version
+      - name: Set Fabric workspace context
+        run: |
+          fabric login --tenant $TENANT_ID --client-id $CLIENT_ID --client-secret $CLIENT_SECRET
+          fabric workspace set $FABRIC_WORKSPACE_ID
 
-    - name: Get Access Token
-      id: get_token
-      run: |
-        set -e
-        echo "Fetching access token..."
-        response=$(curl -s -X POST \
-          -H "Content-Type: application/x-www-form-urlencoded" \
-          -d "client_id=${{ secrets.CLIENT_ID }}" \
-          -d "scope=https://fabric.azure.com/.default" \
-          -d "client_secret=${{ secrets.CLIENT_SECRET }}" \
-          -d "grant_type=client_credentials" \
-          "https://login.microsoftonline.com/${{ secrets.TENANT_ID }}/oauth2/v2.0/token")
-
-        echo "Response: $response"
-
-        ACCESS_TOKEN=$(echo "$response" | jq -r '.access_token')
-
-        if [ "$ACCESS_TOKEN" = "null" ] || [ -z "$ACCESS_TOKEN" ]; then
-          echo "Failed to fetch access token"
-          exit 1
-        fi
-
-        echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
-
-    - name: Authenticate Fabric CLI
-      run: |
-        fabric auth login --access-token $ACCESS_TOKEN --workspace ${{ secrets.WORKSPACE_ID }}
-
-    - name: Deploy pipelines
-      run: |
-        for pipeline_dir in deploy/pipeline/*/; do
-          pipeline_name=$(basename "$pipeline_dir")
-          manifest_path="$pipeline_dir/manifest.json"
-          pipeline_json_path="$pipeline_dir/${pipeline_name}.json"
-
-          if [[ ! -f "$manifest_path" ]]; then
-            echo "Manifest not found: $manifest_path"
-            exit 1
-          fi
-
-          if [[ ! -f "$pipeline_json_path" ]]; then
-            echo "Pipeline JSON not found: $pipeline_json_path"
-            exit 1
-          fi
-
-          fabric pipeline deploy --workspace ${{ secrets.WORKSPACE_ID }} --manifest "$manifest_path" --pipeline "$pipeline_json_path"
-        done
+      - name: Run Fabric CLI command
+        run: |
+          fabric some-command --workspace $FABRIC_WORKSPACE_ID
