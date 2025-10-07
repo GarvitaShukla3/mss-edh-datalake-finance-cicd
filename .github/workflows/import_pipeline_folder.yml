@@ -5,8 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'deploy/pipeline/**'   # Trigger on any file change under deploy/pipeline/
-  workflow_dispatch:
+      - 'deploy/pipeline/**'
 
 jobs:
   deploy:
@@ -16,47 +15,27 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Node.js (Fabric CLI dependency)
-        uses: actions/setup-node@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          node-version: '18'
+          python-version: '3.10'
 
       - name: Install Fabric CLI
-        run: npm install -g @microsoft/fabric-cli
+        run: |
+          python -m pip install --upgrade pip
+          pip install ms-fabric-cli
 
       - name: Log in to Microsoft Fabric
         run: |
-          fabric login azure-service-principal \
-            --client-id ${{ secrets.CLIENT_ID }} \
-            --client-secret ${{ secrets.CLIENT_SECRET }} \
-            --tenant-id ${{ secrets.TENANT_ID }}
+          echo "${{ secrets.FABRIC_CLIENT_SECRET }}" | fab auth login -u ${{ secrets.FABRIC_CLIENT_ID }} -p $(cat) --tenant ${{ secrets.FABRIC_TENANT_ID }}
 
-      - name: Deploy pipelines
-        shell: bash
+      - name: Deploy Pipelines
         run: |
-          # Iterate over each pipeline folder
           for pipeline_dir in deploy/pipeline/*; do
             if [ -d "$pipeline_dir" ]; then
               pipeline_name=$(basename "$pipeline_dir")
               echo "Deploying pipeline: $pipeline_name"
-
-              # Paths to JSON files
-              manifest_file="$pipeline_dir/manifest.json"
-              pipeline_file="$pipeline_dir/${pipeline_name}.json"
-
-              # Check if files exist
-              if [[ -f "$manifest_file" && -f "$pipeline_file" ]]; then
-                echo "Deploying manifest.json..."
-                fabric pipeline deploy \
-                  --workspace-id ${{ secrets.FABRIC_WORKSPACE_ID }} \
-                  --definition-file "$manifest_file"
-
-                echo "Deploying $pipeline_name.json..."
-                fabric pipeline deploy \
-                  --workspace-id ${{ secrets.FABRIC_WORKSPACE_ID }} \
-                  --definition-file "$pipeline_file"
-              else
-                echo "Skipping $pipeline_name: required files missing"
-              fi
+              fab pipeline deploy --workspace-id ${{ secrets.FABRIC_WORKSPACE_ID }} --definition-file "$pipeline_dir/manifest.json"
+              fab pipeline deploy --workspace-id ${{ secrets.FABRIC_WORKSPACE_ID }} --definition-file "$pipeline_dir/$pipeline_name.json"
             fi
           done
