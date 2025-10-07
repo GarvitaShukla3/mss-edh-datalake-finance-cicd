@@ -29,7 +29,7 @@ jobs:
 
     - name: Verify fabric CLI install
       run: |
-        fabric --version
+        fab --version
 
     - name: Get Access Token
       id: get_token
