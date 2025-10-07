@@ -31,12 +31,12 @@ jobs:
 
       - name: Login to Fabric CLI
         run: |
-          fab login --tenant $TENANT_ID --client-id $CLIENT_ID --client-secret $CLIENT_SECRET
+          fab auth login -u $CLIENT_ID -p $CLIENT_SECRET --tenant $TENANT_ID
 
       - name: Set Fabric workspace context
         run: |
-          fabric workspace set $FABRIC_WORKSPACE_ID
+          fab workspace set $FABRIC_WORKSPACE_ID
 
       - name: Run Fabric CLI command
         run: |
-          fabric some-command --workspace $FABRIC_WORKSPACE_ID
+          fab some-command --workspace $FABRIC_WORKSPACE_ID
