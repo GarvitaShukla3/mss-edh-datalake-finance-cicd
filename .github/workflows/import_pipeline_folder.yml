@@ -37,6 +37,9 @@ jobs:
       - name: Set CLI mode to interactive
         run: fab config set mode interactive
 
+      - name: Debug workspace names
+        run: fab ls /
+
       - name: Try deploying pipeline via CLI
         continue-on-error: true
         run: |
