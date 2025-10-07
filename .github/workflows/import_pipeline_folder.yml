@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'deploy/pipeline/**'
   workflow_dispatch:
 
 jobs:
@@ -13,64 +11,53 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+    - name: Checkout repo
+      uses: actions/checkout@v3
 
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq curl
 
-      - name: Install dependencies (jq + Fabric CLI)
-        run: |
-          sudo apt-get update && sudo apt-get install -y jq
-          pip install --user ms-fabric-cli
+    - name: Install Fabric CLI
+      run: |
+        # Example install command (replace with actual Fabric CLI install steps)
+        curl -sSL https://fabric-cli-url/install.sh | bash
 
-      - name: Add pip user bin to PATH
-        run: echo "${HOME}/.local/bin" >> $GITHUB_PATH
+    - name: Get Access Token
+      id: get_token
+      run: |
+        ACCESS_TOKEN=$(curl -X POST \
+          -H "Content-Type: application/x-www-form-urlencoded" \
+          -d "client_id=${{ secrets.CLIENT_ID }}&scope=https%3A%2F%2Ffabric.azure.com%2F.default&client_secret=${{ secrets.CLIENT_SECRET }}&grant_type=client_credentials" \
+          "https://login.microsoftonline.com/${{ secrets.TENANT_ID }}/oauth2/v2.0/token" | jq -r '.access_token')
 
-      - name: Get Azure AD access token for Fabric CLI
-        id: get_token
-        run: |
-          RESPONSE=$(curl -s -X POST -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "grant_type=client_credentials" \
-            -d "client_id=${{ secrets.CLIENT_ID }}" \
-            -d "client_secret=${{ secrets.CLIENT_SECRET }}" \
-            -d "scope=https://api.fabric.microsoft.com/.default" \
-            "https://login.microsoftonline.com/${{ secrets.TENANT_ID }}/oauth2/v2.0/token")
+        echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
 
-          ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
-          if [[ -z "$ACCESS_TOKEN" || "$ACCESS_TOKEN" == "null" ]]; then
-            echo "❌ Failed to get access token"
-            echo "$RESPONSE"
+    - name: Authenticate Fabric CLI
+      run: |
+        # Example fabric CLI login with token, replace if necessary
+        fabric auth login --access-token $ACCESS_TOKEN --workspace ${{ secrets.FABRIC_WORKSPACE_ID }}
+
+    - name: Deploy pipelines
+      run: |
+        # Loop through each pipeline folder in deploy/pipeline
+        for pipeline_dir in deploy/pipeline/*/; do
+          echo "Deploying pipeline in $pipeline_dir"
+          pipeline_name=$(basename "$pipeline_dir")
+          manifest_path="$pipeline_dir/manifest.json"
+          pipeline_json_path="$pipeline_dir/${pipeline_name}.json"
+
+          # Check files exist
+          if [[ ! -f "$manifest_path" ]]; then
+            echo "Manifest not found: $manifest_path"
             exit 1
           fi
-          echo "✅ Access token retrieved"
-          echo "FABRIC_ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
-
-      - name: Authenticate, Set Workspace, and Import Pipeline
-        env:
-          FABRIC_ACCESS_TOKEN: ${{ env.FABRIC_ACCESS_TOKEN }}
-        run: |
-          export PATH=$HOME/.local/bin:$PATH
-
-          PIPELINE_JSON=$(find deploy/pipeline -type f -name "*.json" ! -name "manifest.json" | head -n 1)
-          PIPELINE_FOLDER=$(dirname "$PIPELINE_JSON")
-
-          echo "✅ Found pipeline JSON: $PIPELINE_JSON"
-          echo "✅ Using pipeline folder: $PIPELINE_FOLDER"
-
-          if [ -z "$PIPELINE_JSON" ]; then
-            echo "❌ No pipeline JSON file found."
+          if [[ ! -f "$pipeline_json_path" ]]; then
+            echo "Pipeline json not found: $pipeline_json_path"
             exit 1
           fi
 
-
-          fab workspace set /Prod-Fabric-workspace/pipeline
-
-          fab import pip.Pipeline -i "$PIPELINE_FOLDER" -f
-
-      - name: Show final fab config (for debugging)
-        run: |
-          export PATH=$HOME/.local/bin:$PATH
-          fab config list || echo "fab config list command failed"
+          # Deploy using Fabric CLI
+          fabric pipeline deploy --workspace ${{ secrets.WORKSPACE_ID }} --manifest "$manifest_path" --pipeline "$pipeline_json_path"
+        done
