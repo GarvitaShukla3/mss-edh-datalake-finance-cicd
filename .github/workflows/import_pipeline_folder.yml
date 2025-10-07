@@ -65,7 +65,7 @@ jobs:
             exit 1
           fi
 
-          fab auth login --token $FABRIC_ACCESS_TOKEN
+
           fab workspace set /Prod-Fabric-workspace/pipeline
 
           fab import pip.Pipeline -i "$PIPELINE_FOLDER" -f
