@@ -23,7 +23,7 @@ jobs:
       run: |
         python3 -m pip install --upgrade pip
         pip install fabric-cli  # Replace 'fabric-cli' with actual package name if different
-        fab --version
+        fabric --version
 
     - name: Get Access Token
       id: get_token
