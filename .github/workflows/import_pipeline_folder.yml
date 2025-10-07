@@ -24,6 +24,16 @@ jobs:
       - name: Install Microsoft Fabric CLI
         run: pip install ms-fabric-cli
 
+      - name: Show fab CLI help (for debugging)
+        run: |
+          echo "=== fab --help output ==="
+          fab --help
+
+      - name: Show fab import help (for debugging)
+        run: |
+          echo "=== fab import --help output ==="
+          fab import --help || echo "fab import command not available"
+
       - name: Get Azure AD access token for Fabric CLI
         id: get_token
         run: |
@@ -31,7 +41,7 @@ jobs:
             -d "grant_type=client_credentials" \
             -d "client_id=${{ secrets.CLIENT_ID }}" \
             -d "client_secret=${{ secrets.CLIENT_SECRET }}" \
-            -d "scope=https://api.fabric.microsoft.com/.default" \
+            -d "scope=https://fabric.microsoft.com/.default" \
             "https://login.microsoftonline.com/${{ secrets.TENANT_ID }}/oauth2/v2.0/token")
 
           ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
@@ -58,10 +68,10 @@ jobs:
 
               if [[ -f "$manifest_file" && -f "$pipeline_file" ]]; then
                 echo "Deploying manifest.json for $pipeline_name"
-                fab pipeline deploy --workspace-id "$FABRIC_WORKSPACE_ID" --definition-file "$manifest_file"
+                fab import --workspace-id "$FABRIC_WORKSPACE_ID" --file "$manifest_file"
 
                 echo "Deploying ${pipeline_name}.json for $pipeline_name"
-                fab pipeline deploy --workspace-id "$FABRIC_WORKSPACE_ID" --definition-file "$pipeline_file"
+                fab import --workspace-id "$FABRIC_WORKSPACE_ID" --file "$pipeline_file"
               else
                 echo "Skipping $pipeline_name: missing required JSON files."
               fi
