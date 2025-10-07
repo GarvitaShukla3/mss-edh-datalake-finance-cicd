@@ -17,16 +17,13 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq curl
+        sudo apt-get install -y jq curl python3 python3-pip
 
-    - name: Install Fabric CLI
+    - name: Install Fabric CLI using pip
       run: |
-        echo "Installing Fabric CLI..."
-        # TODO: Replace this URL with your actual Fabric CLI binary download URL or install command
-        curl -Lo fabric-cli https://example.com/path/to/fabric-cli-linux
-        chmod +x fabric-cli
-        sudo mv fabric-cli /usr/local/bin/fabric
-        fabric --version
+        python3 -m pip install --upgrade pip
+        pip install fabric-cli  # Replace 'fabric-cli' with actual package name if different
+        fab --version
 
     - name: Get Access Token
       id: get_token
@@ -36,7 +33,7 @@ jobs:
         response=$(curl -s -X POST \
           -H "Content-Type: application/x-www-form-urlencoded" \
           -d "client_id=${{ secrets.CLIENT_ID }}" \
-          -d "scope=https://fabric.azure.com/.default" \
+          -d "scope=https://api.fabric.azure.com/.default" \
           -d "client_secret=${{ secrets.CLIENT_SECRET }}" \
           -d "grant_type=client_credentials" \
           "https://login.microsoftonline.com/${{ secrets.TENANT_ID }}/oauth2/v2.0/token")
@@ -54,29 +51,24 @@ jobs:
 
     - name: Authenticate Fabric CLI
       run: |
-        fabric auth login --access-token $ACCESS_TOKEN --workspace ${{ secrets.WORKSPACE_ID }}
+        fabric auth login --access-token $ACCESS_TOKEN --workspace ${{ secrets.FABRIC_WORKSPACE_ID }}
 
     - name: Deploy pipelines
       run: |
-        echo "Deploying pipelines from deploy/pipeline/..."
         for pipeline_dir in deploy/pipeline/*/; do
           pipeline_name=$(basename "$pipeline_dir")
           manifest_path="$pipeline_dir/manifest.json"
           pipeline_json_path="$pipeline_dir/${pipeline_name}.json"
 
-          echo "Deploying pipeline '$pipeline_name'"
-
           if [[ ! -f "$manifest_path" ]]; then
-            echo "ERROR: Manifest file not found: $manifest_path"
+            echo "Manifest not found: $manifest_path"
             exit 1
           fi
 
           if [[ ! -f "$pipeline_json_path" ]]; then
-            echo "ERROR: Pipeline json file not found: $pipeline_json_path"
+            echo "Pipeline JSON not found: $pipeline_json_path"
             exit 1
           fi
 
           fabric pipeline deploy --workspace ${{ secrets.WORKSPACE_ID }} --manifest "$manifest_path" --pipeline "$pipeline_json_path"
-
-          echo "Successfully deployed pipeline '$pipeline_name'"
         done
