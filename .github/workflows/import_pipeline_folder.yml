@@ -42,9 +42,9 @@ jobs:
         run: |
           echo "Attempting CLI import..."
           # Optional: cd into workspace if supported
-          fab cd $FABRIC_WORKSPACE_ID || echo "cd failed, continuing"
+          fab cd /Prod-Fabric-workspace || echo "cd failed, continuing"
           
           # Try full Fabric path
-          fab import deploy/pipeline/pipeline_testing.Pipeline --input deploy/pipeline/pipeline_testing/manifest.json || exit 0
+          fab import /Prod-Fabric-workspace/pipeline_testing.Pipeline --input deploy/pipeline/pipeline_testing/manifest.json || exit 0
 
 
