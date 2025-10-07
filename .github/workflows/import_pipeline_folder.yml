@@ -41,7 +41,7 @@ jobs:
             -d "grant_type=client_credentials" \
             -d "client_id=${{ secrets.CLIENT_ID }}" \
             -d "client_secret=${{ secrets.CLIENT_SECRET }}" \
-            -d "scope=https://fabric.microsoft.com/.default" \
+            -d "scope=https://api.fabric.microsoft.com/.default" \
             "https://login.microsoftonline.com/${{ secrets.TENANT_ID }}/oauth2/v2.0/token")
 
           ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
