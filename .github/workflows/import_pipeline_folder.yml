@@ -31,6 +31,8 @@ jobs:
 
       - name: Login to Fabric CLI
         run: |
+          fab config set encryption_fallback_enabled true
+
           fab auth login -u $CLIENT_ID -p $CLIENT_SECRET --tenant $TENANT_ID
 
       - name: Set Fabric workspace context
