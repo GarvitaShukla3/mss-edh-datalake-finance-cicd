@@ -24,9 +24,7 @@ jobs:
       - name: Install Microsoft Fabric CLI
         run: pip install ms-fabric-cli
 
-      - name: list of workspaces
-        run: |
-            fab ls
+
 
       # - name: Show fab CLI help (for debugging)
       #   run: |
@@ -56,6 +54,10 @@ jobs:
           fi
           echo "✅ Access token retrieved"
           echo "FABRIC_ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
+
+      - name: list of workspaces
+        run: |
+            fab ls
 
       - name: Get Fabric workspace items (debug to find path)
         id: get_workspace_items
