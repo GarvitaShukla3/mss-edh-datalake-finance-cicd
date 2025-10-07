@@ -31,7 +31,7 @@ jobs:
             -d "grant_type=client_credentials" \
             -d "client_id=${{ secrets.CLIENT_ID }}" \
             -d "client_secret=${{ secrets.CLIENT_SECRET }}" \
-            -d "scope=https://api.fabric.microsoft.com/.default" \
+            -d "scope=https://fabric.microsoft.com/.default" \
             "https://login.microsoftonline.com/${{ secrets.TENANT_ID }}/oauth2/v2.0/token")
 
           ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
@@ -43,12 +43,11 @@ jobs:
           echo "✅ Access token retrieved"
           echo "FABRIC_ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
 
-      - name: Login to Fabric CLI non-interactively
-        run: fab auth login --auth-type service-principal-secret --client-id ${{ secrets.CLIENT_ID }} --client-secret ${{ secrets.CLIENT_SECRET }} --tenant-id ${{ secrets.TENANT_ID }}
-
-
       - name: Deploy pipelines
         shell: bash
+        env:
+          FABRIC_ACCESS_TOKEN: ${{ env.FABRIC_ACCESS_TOKEN }}
+          FABRIC_WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
         run: |
           for pipeline_dir in deploy/pipeline/*; do
             if [ -d "$pipeline_dir" ]; then
@@ -59,10 +58,10 @@ jobs:
 
               if [[ -f "$manifest_file" && -f "$pipeline_file" ]]; then
                 echo "Deploying manifest.json for $pipeline_name"
-                fab pipeline deploy --workspace-id ${{ secrets.FABRIC_WORKSPACE_ID }} --definition-file "$manifest_file"
+                fab pipeline deploy --workspace-id "$FABRIC_WORKSPACE_ID" --definition-file "$manifest_file"
 
                 echo "Deploying ${pipeline_name}.json for $pipeline_name"
-                fab pipeline deploy --workspace-id ${{ secrets.FABRIC_WORKSPACE_ID }} --definition-file "$pipeline_file"
+                fab pipeline deploy --workspace-id "$FABRIC_WORKSPACE_ID" --definition-file "$pipeline_file"
               else
                 echo "Skipping $pipeline_name: missing required JSON files."
               fi
