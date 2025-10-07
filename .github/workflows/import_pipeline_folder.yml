@@ -61,13 +61,13 @@ jobs:
         run: echo "${HOME}/.local/bin" >> $GITHUB_PATH
 
       - name: Check fabric CLI version
-        run: fabric --version
+        run: fab --version
 
       - name: Import Fabric Pipeline
         env:
           FABRIC_ACCESS_TOKEN: ${{ env.FABRIC_ACCESS_TOKEN }}
         run: |
-          fabric pipeline import --folder deploy/pipeline --auth-type token --token $FABRIC_ACCESS_TOKEN
+          fab pipeline import --folder deploy/pipeline --auth-type token --token $FABRIC_ACCESS_TOKEN
 
 
       - name: Show final fab config (for debugging)
