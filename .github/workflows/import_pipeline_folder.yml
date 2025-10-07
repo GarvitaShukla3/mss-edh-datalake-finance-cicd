@@ -21,17 +21,13 @@ jobs:
         with:
           python-version: '3.10'
 
-      # - name: Install Microsoft Fabric CLI
-      #   run: pip install ms-fabric-cli
-
-      - name: Install Microsoft Fabric CLI
+      - name: Install dependencies (jq + Fabric CLI)
         run: |
+          sudo apt-get update && sudo apt-get install -y jq
           pip install --user ms-fabric-cli
-          echo "PIP installs to:"
-          pip show ms-fabric-cli
-          echo "List binaries in ~/.local/bin:"
-          ls -l ~/.local/bin
 
+      - name: Add pip user bin to PATH
+        run: echo "${HOME}/.local/bin" >> $GITHUB_PATH
 
       - name: Get Azure AD access token for Fabric CLI
         id: get_token
@@ -52,17 +48,6 @@ jobs:
           echo "✅ Access token retrieved"
           echo "FABRIC_ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
 
-
-
-      - name: Install Microsoft Fabric CLI
-        run: pip install --user ms-fabric-cli
-
-      - name: Add pip user bin to PATH
-        run: echo "${HOME}/.local/bin" >> $GITHUB_PATH
-
-      - name: Check fabric CLI version
-        run: fab --version
-
       - name: Authenticate and Import Fabric Pipeline
         env:
           FABRIC_ACCESS_TOKEN: ${{ env.FABRIC_ACCESS_TOKEN }}
@@ -71,6 +56,7 @@ jobs:
           fab auth login --token $FABRIC_ACCESS_TOKEN
           fab import pipeline --input deploy/pipeline/pipeline_name.json
 
-
       - name: Show final fab config (for debugging)
-        run: fab config list || echo "fab config list command failed"
+        run: |
+          export PATH=$HOME/.local/bin:$PATH
+          fab config list || echo "fab config list command failed"
