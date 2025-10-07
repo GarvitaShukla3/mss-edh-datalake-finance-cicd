@@ -1,135 +1,62 @@
-name: Deploy Full Pipelines with Activities
+name: Deploy Fabric Pipelines
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'deploy/pipeline/**'   # Trigger on any file change under deploy/pipeline/
   workflow_dispatch:
 
-env:
-  CLIENT_ID: ${{ secrets.CLIENT_ID }}
-  TENANT_ID: ${{ secrets.TENANT_ID }}
-  CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
-  FABRIC_WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
-
 jobs:
-  deploy-pipelines:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-      - name: Install jq and curl
-        run: sudo apt-get update && sudo apt-get install -y jq curl
+      - name: Set up Node.js (Fabric CLI dependency)
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
 
-      - name: Get Azure AD access token
-        id: get_token
+      - name: Install Fabric CLI
+        run: npm install -g @microsoft/fabric-cli
+
+      - name: Log in to Microsoft Fabric
         run: |
-          set -euo pipefail
-          echo "Requesting access token..."
-          RESPONSE=$(curl -s -X POST -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "grant_type=client_credentials" \
-            -d "client_id=${{ env.CLIENT_ID }}" \
-            -d "client_secret=${{ env.CLIENT_SECRET }}" \
-            -d "scope=https://analysis.windows.net/powerbi/api/.default" \
-            "https://login.microsoftonline.com/${{ env.TENANT_ID }}/oauth2/v2.0/token")
+          fabric login azure-service-principal \
+            --client-id ${{ secrets.CLIENT_ID }} \
+            --client-secret ${{ secrets.CLIENT_SECRET }} \
+            --tenant-id ${{ secrets.TENANT_ID }}
 
-          ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
-          if [ -z "$ACCESS_TOKEN" ] || [ "$ACCESS_TOKEN" == "null" ]; then
-            echo "Failed to get access token"
-            echo "$RESPONSE"
-            exit 1
-          fi
-
-          echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
-          echo "Access token retrieved successfully"
-
-      - name: Deploy pipelines with full content (including activities)
-        env:
-          TOKEN: ${{ env.ACCESS_TOKEN }}
-          WORKSPACE_ID: ${{ env.FABRIC_WORKSPACE_ID }}
+      - name: Deploy pipelines
+        shell: bash
         run: |
-          set -euo pipefail
+          # Iterate over each pipeline folder
+          for pipeline_dir in deploy/pipeline/*; do
+            if [ -d "$pipeline_dir" ]; then
+              pipeline_name=$(basename "$pipeline_dir")
+              echo "Deploying pipeline: $pipeline_name"
 
-          BASE_DIR="deploy/pipeline"
-          API_BASE="https://api.fabric.microsoft.com/v1/workspaces/${WORKSPACE_ID}/items"
+              # Paths to JSON files
+              manifest_file="$pipeline_dir/manifest.json"
+              pipeline_file="$pipeline_dir/${pipeline_name}.json"
 
-          if [ ! -d "$BASE_DIR" ]; then
-            echo "Pipeline directory $BASE_DIR not found"
-            exit 1
-          fi
+              # Check if files exist
+              if [[ -f "$manifest_file" && -f "$pipeline_file" ]]; then
+                echo "Deploying manifest.json..."
+                fabric pipeline deploy \
+                  --workspace-id ${{ secrets.FABRIC_WORKSPACE_ID }} \
+                  --definition-file "$manifest_file"
 
-          for PIPELINE_FOLDER in "$BASE_DIR"/*/; do
-            PIPELINE_FOLDER=${PIPELINE_FOLDER%/}
-            PIPELINE_NAME=$(basename "$PIPELINE_FOLDER")
-            PIPELINE_JSON_FILE="$PIPELINE_FOLDER/${PIPELINE_NAME}.json"
-
-            echo "Deploying pipeline: $PIPELINE_NAME"
-
-            if [ ! -f "$PIPELINE_JSON_FILE" ]; then
-              echo "Pipeline JSON $PIPELINE_JSON_FILE not found, skipping."
-              continue
-            fi
-
-            # Read the raw pipeline JSON
-            PIPELINE_JSON=$(cat "$PIPELINE_JSON_FILE")
-
-            # Check if pipeline already exists by displayName
-            EXISTING_ID=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE" | \
-              jq -r --arg dn "$PIPELINE_NAME" '.value[] | select(.displayName==$dn and .type=="Pipeline") | .id' | head -n1)
-
-            # Compose the correct payload for create/update
-            CREATE_PAYLOAD=$(jq -n \
-              --arg dn "$PIPELINE_NAME" \
-              --argjson pipeline "$PIPELINE_JSON" \
-              '{
-                displayName: $dn,
-                type: "Pipeline",
-                manifest: {},
-                createItemRequest: {
-                  definition: $pipeline.properties
-                }
-              }')
-
-            if [ -n "$EXISTING_ID" ]; then
-              echo "Pipeline exists (ID: $EXISTING_ID), updating..."
-
-              RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT \
-                -H "Authorization: Bearer $TOKEN" \
-                -H "Content-Type: application/json" \
-                --data "$CREATE_PAYLOAD" \
-                "$API_BASE/$EXISTING_ID")
-
-              HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-              BODY=$(echo "$RESPONSE" | sed '$d')
-
-              echo "Update HTTP code: $HTTP_CODE"
-              echo "Update response: $BODY"
-
-              if [[ "$HTTP_CODE" =~ ^2 ]]; then
-                echo "Pipeline $PIPELINE_NAME updated successfully."
+                echo "Deploying $pipeline_name.json..."
+                fabric pipeline deploy \
+                  --workspace-id ${{ secrets.FABRIC_WORKSPACE_ID }} \
+                  --definition-file "$pipeline_file"
               else
-                echo "Failed to update pipeline $PIPELINE_NAME"
-                exit 1
-              fi
-            else
-              echo "Pipeline does not exist, creating..."
-
-              RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-                -H "Authorization: Bearer $TOKEN" \
-                -H "Content-Type: application/json" \
-                --data "$CREATE_PAYLOAD" \
-                "$API_BASE")
-
-              HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-              BODY=$(echo "$RESPONSE" | sed '$d')
-
-              echo "Create HTTP code: $HTTP_CODE"
-              echo "Create response: $BODY"
-
-              if [[ "$HTTP_CODE" =~ ^2 ]]; then
-                echo "Pipeline $PIPELINE_NAME created successfully."
-              else
-                echo "Failed to create pipeline $PIPELINE_NAME"
-                exit 1
+                echo "Skipping $pipeline_name: required files missing"
               fi
             fi
           done
