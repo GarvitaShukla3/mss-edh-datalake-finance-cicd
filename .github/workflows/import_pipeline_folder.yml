@@ -24,15 +24,19 @@ jobs:
       - name: Install Microsoft Fabric CLI
         run: pip install ms-fabric-cli
 
-      - name: Show fab CLI help (for debugging)
+      - name: list of workspaces
         run: |
-          echo "=== fab --help output ==="
-          fab --help || echo "fab command failed"
+            fab ls
 
-      - name: Show fab import help (for debugging)
-        run: |
-          echo "=== fab import --help output ==="
-          fab import --help || echo "fab import command not available"
+      # - name: Show fab CLI help (for debugging)
+      #   run: |
+      #     echo "=== fab --help output ==="
+      #     fab --help || echo "fab command failed"
+
+      # - name: Show fab import help (for debugging)
+      #   run: |
+      #     echo "=== fab import --help output ==="
+      #     fab import --help || echo "fab import command not available"
 
       - name: Get Azure AD access token for Fabric CLI
         id: get_token
