@@ -43,7 +43,7 @@ jobs:
 
 
       - name: Import pipeline manifest
-        run: fab import pipeline --workspace $FABRIC_WORKSPACE_ID --path deploy/pipeline/pipeline_testing/manifest.json
+        run: fab import pipeline --workspace $FABRIC_WORKSPACE_ID --input deploy/pipeline/pipeline_testing/manifest.json
 
 
 
