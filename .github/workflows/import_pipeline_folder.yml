@@ -16,23 +16,25 @@ jobs:
       FABRIC_WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v3
 
-      - name: Download Fabric CLI binary
-        run: |
-          curl -Lo fabric-cli https://path-to-fabric-cli-binary
-          chmod +x fabric-cli
-          sudo mv fabric-cli /usr/local/bin/fabric
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
 
-
-      - name: Login to Azure using service principal
+      - name: Install ms-fabric-cli
         run: |
-          az login --service-principal -u $CLIENT_ID -p $CLIENT_SECRET --tenant $TENANT_ID
+          python -m pip install --upgrade pip
+          pip install ms-fabric-cli
+
+      - name: Login to Fabric CLI
+        run: |
+          fabric login --tenant $TENANT_ID --client-id $CLIENT_ID --client-secret $CLIENT_SECRET
 
       - name: Set Fabric workspace context
         run: |
-          fabric login --tenant $TENANT_ID --client-id $CLIENT_ID --client-secret $CLIENT_SECRET
           fabric workspace set $FABRIC_WORKSPACE_ID
 
       - name: Run Fabric CLI command
