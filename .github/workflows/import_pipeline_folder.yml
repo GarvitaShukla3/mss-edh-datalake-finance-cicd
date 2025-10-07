@@ -53,6 +53,7 @@ jobs:
           FABRIC_ACCESS_TOKEN: ${{ env.FABRIC_ACCESS_TOKEN }}
         run: |
           export PATH=$HOME/.local/bin:$PATH
+          jq '.workspacePath = "/Prod-Fabric-workspace/pipeline"' deploy/pipeline/pipeline_name.json > temp.json && mv temp.json deploy/pipeline/pipeline_name.json
           fab import pipeline --input deploy/pipeline/pipeline_name.json
 
       - name: Show final fab config (for debugging)
