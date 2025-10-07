@@ -68,10 +68,10 @@ jobs:
 
               if [[ -f "$manifest_file" && -f "$pipeline_file" ]]; then
                 echo "Deploying manifest.json for $pipeline_name"
-                fab import --workspace-id "$FABRIC_WORKSPACE_ID" --i "$manifest_file"
+                fab import --i "$manifest_file"
 
                 echo "Deploying ${pipeline_name}.json for $pipeline_name"
-                fab import --workspace-id "$FABRIC_WORKSPACE_ID" --i "$pipeline_file"
+                fab import --i "$pipeline_file"
               else
                 echo "Skipping $pipeline_name: missing required JSON files."
               fi
