@@ -36,7 +36,7 @@ jobs:
         run: fab auth login -u $CLIENT_ID -p $CLIENT_SECRET --tenant $TENANT_ID
 
       - name: Verify Fabric CLI login
-        run: fab whoami  # or any command that requires authentication
+        run: fab get workspaces
 
 
 
