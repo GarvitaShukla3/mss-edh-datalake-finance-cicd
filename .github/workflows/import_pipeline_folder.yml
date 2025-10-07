@@ -29,15 +29,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install ms-fabric-cli
 
-      - name: Login to Fabric CLI
-        run: |
-          fab config set encryption_fallback_enabled true
+      - name: Enable plaintext auth token fallback
+        run: fab config set encryption_fallback_enabled true
 
-          fab auth login -u $CLIENT_ID -p $CLIENT_SECRET --tenant $TENANT_ID
+      - name: Login to Fabric CLI
+        run: fab auth login -u $CLIENT_ID -p $CLIENT_SECRET --tenant $TENANT_ID
+
+      - name: Verify Fabric CLI login
+        run: fab whoami  # or any command that requires authentication
+
+
 
       - name: Set Fabric workspace context
         run: |
-          fab workspace set $FABRIC_WORKSPACE_ID
+          fab set workspace $FABRIC_WORKSPACE_ID
 
       - name: Run Fabric CLI command
         run: |
