@@ -48,32 +48,27 @@ jobs:
           echo "✅ Access token retrieved"
           echo "FABRIC_ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
 
-      - name: Inject workspacePath and Import Fabric Pipeline
-        env:
-          FABRIC_ACCESS_TOKEN: ${{ env.FABRIC_ACCESS_TOKEN }}
-        run: |
-          export PATH=$HOME/.local/bin:$PATH
+          - name: Authenticate, Set Workspace, and Import Pipeline
+            env:
+              FABRIC_ACCESS_TOKEN: ${{ env.FABRIC_ACCESS_TOKEN }}
+            run: |
+              export PATH=$HOME/.local/bin:$PATH
 
-          # Find the actual pipeline JSON (not manifest)
-          PIPELINE_JSON=$(find deploy/pipeline -type f -name "*.json" ! -name "manifest.json" | head -n 1)
+              PIPELINE_JSON=$(find deploy/pipeline -type f -name "*.json" ! -name "manifest.json" | head -n 1)
+              PIPELINE_FOLDER=$(dirname "$PIPELINE_JSON")
 
-          echo "✅ Found pipeline JSON: $PIPELINE_JSON"
+              echo "✅ Found pipeline JSON: $PIPELINE_JSON"
+              echo "✅ Using pipeline folder: $PIPELINE_FOLDER"
 
-          if [ -z "$PIPELINE_JSON" ]; then
-            echo "❌ No pipeline JSON file found."
-          exit 1
-          fi
+              if [ -z "$PIPELINE_JSON" ]; then
+              echo "❌ No pipeline JSON file found."
+              exit 1
+              fi
 
-          # Inject workspacePath — overwrite or add
-          jq '.workspacePath = "/Prod-Fabric-workspace/pipeline"' "$PIPELINE_JSON" > temp.json && mv temp.json "$PIPELINE_JSON"
+              fab auth login --token $FABRIC_ACCESS_TOKEN
+              fab workspace set /Prod-Fabric-workspace/pipeline
 
-          # Show updated JSON to confirm
-          echo "📄 Updated pipeline JSON:"
-          cat "$PIPELINE_JSON"
-    
-          # Import pipeline
-          echo "🚀 Importing pipeline..."
-          fab import pipeline --help 
+              fab import pip.Pipeline -i "$PIPELINE_FOLDER" -f
 
 
       - name: Show final fab config (for debugging)
