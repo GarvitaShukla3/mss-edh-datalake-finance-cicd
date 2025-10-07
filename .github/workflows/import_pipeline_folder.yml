@@ -53,14 +53,44 @@ jobs:
           echo "✅ Access token retrieved"
           echo "FABRIC_ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
 
-      - name: Deploy pipelines
+      - name: Get Fabric workspace path from workspace ID
+        id: get_workspace_path
         shell: bash
         env:
           FABRIC_ACCESS_TOKEN: ${{ env.FABRIC_ACCESS_TOKEN }}
           FABRIC_WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
         run: |
+          echo "Getting workspace metadata for ID: $FABRIC_WORKSPACE_ID"
+
+          RESPONSE=$(curl -s -H "Authorization: Bearer $FABRIC_ACCESS_TOKEN" \
+            "https://api.fabric.microsoft.com/workspaces/$FABRIC_WORKSPACE_ID")
+
+          # Adjust '.path' or '.workspacePath' based on actual API response structure
+          WORKSPACE_PATH=$(echo "$RESPONSE" | jq -r '.path // .workspacePath // empty')
+
+          if [[ -z "$WORKSPACE_PATH" ]]; then
+            echo "❌ Failed to get workspace path from API response:"
+            echo "$RESPONSE"
+            exit 1
+          fi
+
+          echo "✅ Workspace path found: $WORKSPACE_PATH"
+          echo "WORKSPACE_PATH=$WORKSPACE_PATH" >> $GITHUB_ENV
+
+      - name: Login to Fabric CLI with access token
+        shell: bash
+        env:
+          FABRIC_ACCESS_TOKEN: ${{ env.FABRIC_ACCESS_TOKEN }}
+        run: |
+          echo "$FABRIC_ACCESS_TOKEN" | fab auth login --access-token --stdin
+
+      - name: Deploy pipelines
+        shell: bash
+        env:
+          WORKSPACE_PATH: ${{ env.WORKSPACE_PATH }}
+        run: |
           for pipeline_dir in deploy/pipeline/*; do
-            if [ -d "$pipeline_dir" ]; then
+            if [[ -d "$pipeline_dir" ]]; then
               pipeline_name=$(basename "$pipeline_dir")
 
               manifest_file="$pipeline_dir/manifest.json"
@@ -68,10 +98,10 @@ jobs:
 
               if [[ -f "$manifest_file" && -f "$pipeline_file" ]]; then
                 echo "Deploying manifest.json for $pipeline_name"
-                fab import "/Prod-Fabric-workspace/${pipeline_name}" -i "$manifest_file" -f
+                fab import "$WORKSPACE_PATH/${pipeline_name}" -i "$manifest_file" -f
 
                 echo "Deploying ${pipeline_name}.json for $pipeline_name"
-                fab import "/Prod-Fabric-workspace/${pipeline_name}" -i "$pipeline_file" -f
+                fab import "$WORKSPACE_PATH/${pipeline_name}" -i "$pipeline_file" -f
               else
                 echo "Skipping $pipeline_name: missing required JSON files."
               fi
