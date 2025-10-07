@@ -24,6 +24,16 @@ jobs:
       - name: Install Microsoft Fabric CLI
         run: pip install ms-fabric-cli
 
+      - name: Show fab CLI help (for debugging)
+        run: |
+          echo "=== fab --help output ==="
+          fab --help || echo "fab command failed"
+
+      - name: Show fab import help (for debugging)
+        run: |
+          echo "=== fab import --help output ==="
+          fab import --help || echo "fab import command not available"
+
       - name: Get Azure AD access token for Fabric CLI
         id: get_token
         run: |
@@ -66,19 +76,10 @@ jobs:
             exit 1
           fi
 
-          # Example: Extract workspace path or id (adjust based on your actual API response)
-          # Here we assume the root workspace path is available as a property; modify as needed.
-          # For now, just print item list for manual inspection
           echo "Workspace items summary:"
-          echo "$RESPONSE" | jq '.items[] | {id: .id, name: .name, path: .path}'
+          echo "$RESPONSE" | jq '.value[] | {id: .id, name: .displayName, type: .type}'
 
-          # Set workspace root path manually if you know it, else get from response if possible
-          # echo "WORKSPACE_PATH=/Prod-Fabric-workspace" >> $GITHUB_ENV
-          # OR you can try to extract path, for example:
-          # WORKSPACE_PATH=$(echo "$RESPONSE" | jq -r '.items[0].path')
-          # echo "WORKSPACE_PATH=$WORKSPACE_PATH" >> $GITHUB_ENV
-
-          # For now, we just set a fixed path - UPDATE this as per your API output
+          # You can set WORKSPACE_PATH here manually or extract it dynamically if needed
           echo "WORKSPACE_PATH=/Prod-Fabric-workspace" >> $GITHUB_ENV
 
       - name: Deploy pipelines
@@ -87,6 +88,9 @@ jobs:
           FABRIC_ACCESS_TOKEN: ${{ env.FABRIC_ACCESS_TOKEN }}
           WORKSPACE_PATH: ${{ env.WORKSPACE_PATH }}
         run: |
+          export FABRIC_ACCESS_TOKEN
+          export FABRIC_AUTH_TOKEN=$FABRIC_ACCESS_TOKEN
+
           for pipeline_dir in deploy/pipeline/*; do
             if [ -d "$pipeline_dir" ]; then
               pipeline_name=$(basename "$pipeline_dir")
@@ -105,3 +109,6 @@ jobs:
               fi
             fi
           done
+
+      - name: Show final fab config (for debugging)
+        run: fab config list || echo "fab config list command failed"
