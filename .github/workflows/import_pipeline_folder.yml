@@ -35,16 +35,16 @@ jobs:
       - name: Login to Fabric CLI
         run: fab auth login -u $CLIENT_ID -p $CLIENT_SECRET --tenant $TENANT_ID
 
-      - name: Verify Fabric CLI login
-        run: fab auth status
-      - name: ls
-        run : fab config ls
+      # - name: Verify Fabric CLI login
+      #   run: fab auth status
+      # - name: ls
+      #   run : fab config ls
 
 
 
-      - name: Set Fabric workspace context
-        run: |
-          fab cd $FABRIC_WORKSPACE_ID
+      - name: Import pipeline manifest
+        run: fab import pipeline --workspace $FABRIC_WORKSPACE_ID --path deploy/pipeline/<folder>/manifest.json
+
 
 
 
