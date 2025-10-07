@@ -45,6 +45,7 @@ jobs:
           fab cd /Prod-Fabric-workspace || echo "cd failed, continuing"
           
           # Try full Fabric path
-          fab import /Prod-Fabric-workspace/pipeline_testing.Pipeline --input deploy/pipeline/pipeline_testing/manifest.json || exit 0
+          fab import Prod-Fabric-Workspace.workspace/pipeline_testing.Pipeline -i deploy/pipeline/pipeline_testing/manifest.json -f
+
 
 
