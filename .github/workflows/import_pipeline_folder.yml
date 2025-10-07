@@ -37,12 +37,14 @@ jobs:
 
       - name: Verify Fabric CLI login
         run: fab auth status
+      - name: ls
+        run : fab config ls
 
 
 
       - name: Set Fabric workspace context
         run: |
-          fab set --query workspace --input $FABRIC_WORKSPACE_ID
+          fab set config workspace --input $FABRIC_WORKSPACE_ID
 
 
       - name: Run Fabric CLI command
