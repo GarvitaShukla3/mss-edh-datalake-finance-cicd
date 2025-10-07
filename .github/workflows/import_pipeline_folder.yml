@@ -73,7 +73,7 @@ jobs:
     
           # Import pipeline
           echo "🚀 Importing pipeline..."
-          fab import pipeline --input "$PIPELINE_JSON"
+          fab import pipeline --workspace "/Prod-Fabric-workspace/pipeline" --input "$PIPELINE_JSON"
 
 
       - name: Show final fab config (for debugging)
