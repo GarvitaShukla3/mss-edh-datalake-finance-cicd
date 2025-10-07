@@ -54,6 +54,17 @@ jobs:
           echo "FABRIC_ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
 
 
+      - name: Debug - List workspace folder by name (optional)
+        env:
+          FABRIC_ACCESS_TOKEN: ${{ env.FABRIC_ACCESS_TOKEN }}
+          WORKSPACE_NAME: ${{ secrets.FABRIC_WORKSPACE_NAME }}
+        if: env.WORKSPACE_NAME != ''
+        run: |
+          export FABRIC_ACCESS_TOKEN
+          echo "Listing workspace by name:"
+          fab ls "/${WORKSPACE_NAME}" || echo "Workspace name path not found"
+
+
 
       - name: Get Fabric workspace items (debug to find path)
         id: get_workspace_items
@@ -82,17 +93,6 @@ jobs:
 
           # You can set WORKSPACE_PATH here manually or extract it dynamically if needed
           echo "WORKSPACE_PATH=/Prod-Fabric-workspace" >> $GITHUB_ENV
-
-
-      - name: Debug - List workspace folder by name (optional)
-        env:
-          FABRIC_ACCESS_TOKEN: ${{ env.FABRIC_ACCESS_TOKEN }}
-          WORKSPACE_NAME: ${{ secrets.FABRIC_WORKSPACE_NAME }}
-        if: env.WORKSPACE_NAME != ''
-        run: |
-          export FABRIC_ACCESS_TOKEN
-          echo "Listing workspace by name:"
-          fab ls "/${WORKSPACE_NAME}" || echo "Workspace name path not found"
           
 
       - name: Deploy pipelines
