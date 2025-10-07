@@ -19,13 +19,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Set up Node.js (if Fabric CLI is npm-based)
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18' # or whichever version you need
+      - name: Download Fabric CLI binary
+        run: |
+          curl -Lo fabric-cli https://path-to-fabric-cli-binary
+          chmod +x fabric-cli
+          sudo mv fabric-cli /usr/local/bin/fabric
 
-      - name: Install MS Fabric CLI
-        run: npm install -g @microsoft/fabric-cli
 
       - name: Login to Azure using service principal
         run: |
