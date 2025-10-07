@@ -12,6 +12,12 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    env:
+      # Secrets for Method A (env-based login)
+      FABRIC_CLIENT_ID: ${{ secrets.CLIENT_ID }}
+      FABRIC_CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+      FABRIC_TENANT_ID: ${{ secrets.TENANT_ID }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -24,13 +30,36 @@ jobs:
       - name: Install Microsoft Fabric CLI
         run: pip install ms-fabric-cli
 
-      - name: Login to Microsoft Fabric CLI using service principal
-        run: |
-          fab auth login \
-            --client-id ${{ secrets.CLIENT_ID }} \
-            --client-secret ${{ secrets.CLIENT_SECRET }} \
-            --tenant-id ${{ secrets.TENANT_ID }} \
-            --service-principal
+      # -------------------------------
+      # Method A: Login using env vars
+      # -------------------------------
+      - name: Login to Microsoft Fabric CLI (env vars method)
+        run: fab auth login
+
+      # -------------------------------
+      # Method B: Login using manual token (uncomment if you want to use)
+      # -------------------------------
+      # - name: Get Azure AD access token for Fabric CLI
+      #   id: get_token
+      #   run: |
+      #     RESPONSE=$(curl -s -X POST -H "Content-Type: application/x-www-form-urlencoded" \
+      #       -d "grant_type=client_credentials" \
+      #       -d "client_id=${{ secrets.CLIENT_ID }}" \
+      #       -d "client_secret=${{ secrets.CLIENT_SECRET }}" \
+      #       -d "scope=https://fabric.microsoft.com/.default" \
+      #       "https://login.microsoftonline.com/${{ secrets.TENANT_ID }}/oauth2/v2.0/token")
+      #
+      #     ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
+      #     if [[ -z "$ACCESS_TOKEN" || "$ACCESS_TOKEN" == "null" ]]; then
+      #       echo "Failed to get token"
+      #       exit 1
+      #     fi
+      #     echo "FABRIC_ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
+      #
+      # - name: Login to Microsoft Fabric CLI using access token
+      #   run: fab auth login
+      #   env:
+      #     FABRIC_ACCESS_TOKEN: ${{ env.FABRIC_ACCESS_TOKEN }}
 
       - name: Deploy pipelines
         shell: bash
