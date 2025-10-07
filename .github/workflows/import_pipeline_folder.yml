@@ -54,20 +54,25 @@ jobs:
         run: |
           export PATH=$HOME/.local/bin:$PATH
 
-          # Find the pipeline JSON file (exclude manifest.json)
+          # Find the actual pipeline JSON (not manifest)
           PIPELINE_JSON=$(find deploy/pipeline -type f -name "*.json" ! -name "manifest.json" | head -n 1)
 
-          echo "Found pipeline JSON: $PIPELINE_JSON"
+          echo "✅ Found pipeline JSON: $PIPELINE_JSON"
 
           if [ -z "$PIPELINE_JSON" ]; then
             echo "❌ No pipeline JSON file found."
           exit 1
           fi
 
-          # Inject the correct workspace path
+          # Inject workspacePath — overwrite or add
           jq '.workspacePath = "/Prod-Fabric-workspace/pipeline"' "$PIPELINE_JSON" > temp.json && mv temp.json "$PIPELINE_JSON"
 
-          # Import the pipeline
+          # Show updated JSON to confirm
+          echo "📄 Updated pipeline JSON:"
+          cat "$PIPELINE_JSON"
+    
+          # Import pipeline
+          echo "🚀 Importing pipeline..."
           fab import pipeline --input "$PIPELINE_JSON"
 
 
