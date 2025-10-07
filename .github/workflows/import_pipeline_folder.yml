@@ -43,7 +43,9 @@ jobs:
 
 
       - name: Import pipeline manifest
-        run: fab import pipeline --input deploy/pipeline/pipeline_testing/manifest.json
+        fab cd <workspace-id>
+        fab import pipeline_testing.Pipeline --input deploy/pipeline/pipeline_testing/manifest.json
+
 
 
 
