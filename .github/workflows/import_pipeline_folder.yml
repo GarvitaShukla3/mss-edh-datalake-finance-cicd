@@ -44,7 +44,8 @@ jobs:
 
       - name: Set Fabric workspace context
         run: |
-          fab set config workspace --input $FABRIC_WORKSPACE_ID
+          fab cd $FABRIC_WORKSPACE_ID
+
 
 
       - name: Run Fabric CLI command
