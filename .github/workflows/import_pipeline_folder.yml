@@ -53,7 +53,6 @@ jobs:
           FABRIC_ACCESS_TOKEN: ${{ env.FABRIC_ACCESS_TOKEN }}
         run: |
           export PATH=$HOME/.local/bin:$PATH
-          fab auth login --token $FABRIC_ACCESS_TOKEN
           fab import pipeline --input deploy/pipeline/pipeline_name.json
 
       - name: Show final fab config (for debugging)
