@@ -28,7 +28,7 @@ jobs:
 
       - name: Log in to Microsoft Fabric
         run: |
-          echo "${{ secrets.FABRIC_CLIENT_SECRET }}" | fab auth login -u ${{ secrets.FABRIC_CLIENT_ID }} -p $(cat) --tenant ${{ secrets.FABRIC_TENANT_ID }}
+          echo "${{ secrets.CLIENT_SECRET }}" | fab auth login -u ${{ secrets.CLIENT_ID }} -p $(cat) --tenant ${{ secrets.TENANT_ID }}
 
       - name: Deploy Pipelines
         run: |
