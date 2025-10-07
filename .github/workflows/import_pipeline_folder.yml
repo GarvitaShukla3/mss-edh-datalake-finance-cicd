@@ -37,8 +37,8 @@ jobs:
       - name: Set CLI mode to interactive
         run: fab config set mode interactive
 
-      - name: List workspace contents
-        run: fab ls Prod-Fabric-workspace.Workspace
+      # - name: List workspace contents
+      #   run: fab ls Prod-Fabric-workspace.Workspace
 
 
       - name: Try deploying pipeline via CLI
@@ -47,7 +47,7 @@ jobs:
 
           
           # Try full Fabric path
-          fab import Prod-Fabric-workspace.Workspace/pipeline_testing.DataPipeline -i deploy/pipeline/pipeline_testing/manifest.json -f
+          fab import Prod-Fabric-workspace.Workspace/pipeline_testing.DataPipeline -i deploy/pipeline/pipeline_testing/pipeline_testing.json -f
 
 
 
