@@ -21,8 +21,17 @@ jobs:
         with:
           python-version: '3.10'
 
+      # - name: Install Microsoft Fabric CLI
+      #   run: pip install ms-fabric-cli
+
       - name: Install Microsoft Fabric CLI
-        run: pip install ms-fabric-cli
+        run: |
+          pip install --user ms-fabric-cli
+          echo "PIP installs to:"
+          pip show ms-fabric-cli
+          echo "List binaries in ~/.local/bin:"
+          ls -l ~/.local/bin
+
 
       - name: Get Azure AD access token for Fabric CLI
         id: get_token
