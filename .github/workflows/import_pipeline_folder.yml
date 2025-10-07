@@ -43,10 +43,9 @@ jobs:
           echo "✅ Access token retrieved"
           echo "FABRIC_ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
 
-      - name: Login to Microsoft Fabric CLI using access token
-        run: fab auth login
-        env:
-          FABRIC_ACCESS_TOKEN: ${{ env.FABRIC_ACCESS_TOKEN }}
+      - name: Login to Fabric CLI non-interactively
+        run: fab auth login --auth-type service-principal-secret --client-id ${{ secrets.CLIENT_ID }} --client-secret ${{ secrets.CLIENT_SECRET }} --tenant-id ${{ secrets.TENANT_ID }}
+
 
       - name: Deploy pipelines
         shell: bash
