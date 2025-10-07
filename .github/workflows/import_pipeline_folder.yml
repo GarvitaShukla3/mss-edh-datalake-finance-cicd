@@ -44,12 +44,15 @@ jobs:
           echo "FABRIC_ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
 
 
+
+      - name: Add pip user bin to PATH
+        run: echo "${HOME}/.local/bin" >> $GITHUB_PATH
+
       - name: Import Fabric Pipeline
         env:
           FABRIC_ACCESS_TOKEN: ${{ env.FABRIC_ACCESS_TOKEN }}
         run: |
-          python -m ms_fabric_cli pipeline import --folder deploy/pipeline --auth-type token --token $FABRIC_ACCESS_TOKEN
-
+          fabric pipeline import --folder deploy/pipeline --auth-type token --token $FABRIC_ACCESS_TOKEN
 
       - name: Show final fab config (for debugging)
         run: fab config list || echo "fab config list command failed"
