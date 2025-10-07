@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'deploy/pipeline/**'   # Trigger on any file change inside deploy/pipeline/
+      - 'deploy/pipeline/**'
   workflow_dispatch:
 
 jobs:
@@ -26,10 +26,11 @@ jobs:
 
       - name: Login to Microsoft Fabric CLI using service principal
         run: |
-          fab auth login azure-service-principal \
+          fab auth login \
             --client-id ${{ secrets.CLIENT_ID }} \
             --client-secret ${{ secrets.CLIENT_SECRET }} \
-            --tenant-id ${{ secrets.TENANT_ID }}
+            --tenant-id ${{ secrets.TENANT_ID }} \
+            --service-principal
 
       - name: Deploy pipelines
         shell: bash
