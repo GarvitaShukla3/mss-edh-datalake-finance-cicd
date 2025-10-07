@@ -43,8 +43,8 @@ jobs:
 
 
       - name: Import pipeline manifest
-        fab cd <workspace-id>
-        fab import pipeline_testing.Pipeline --input deploy/pipeline/pipeline_testing/manifest.json
+          fab cd Prod-Fabric-workspace
+          fab import pipeline_testing.Pipeline --input deploy/pipeline/pipeline_testing/manifest.json
 
 
 
