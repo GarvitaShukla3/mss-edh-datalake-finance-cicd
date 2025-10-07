@@ -31,7 +31,7 @@ jobs:
 
       - name: Login to Fabric CLI
         run: |
-          fabric login --tenant $TENANT_ID --client-id $CLIENT_ID --client-secret $CLIENT_SECRET
+          fab login --tenant $TENANT_ID --client-id $CLIENT_ID --client-secret $CLIENT_SECRET
 
       - name: Set Fabric workspace context
         run: |
