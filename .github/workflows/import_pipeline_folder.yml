@@ -1,19 +1,18 @@
-name: MS Fabric CLI Workflow
+name: Deploy Fabric Pipeline
 
 on:
   push:
-    branches:
-      - main
-  workflow_dispatch:
+    branches: [main]
 
 jobs:
-  run-fabric-cli:
+  deploy-pipeline:
     runs-on: ubuntu-latest
     env:
       CLIENT_ID: ${{ secrets.CLIENT_ID }}
       CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
       TENANT_ID: ${{ secrets.TENANT_ID }}
       FABRIC_WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
+      FABRIC_WORKSPACE_NAME: Prod-Fabric-workspace
 
     steps:
       - name: Checkout repo
@@ -26,30 +25,48 @@ jobs:
 
       - name: Install ms-fabric-cli
         run: |
-          python -m pip install --upgrade pip
+          pip install --upgrade pip
           pip install ms-fabric-cli
 
-      - name: Enable plaintext auth token fallback
-        run: fab config set encryption_fallback_enabled true
-
       - name: Login to Fabric CLI
-        run: fab auth login -u $CLIENT_ID -p $CLIENT_SECRET --tenant $TENANT_ID
-
-      # - name: Verify Fabric CLI login
-      #   run: fab auth status
-      # - name: ls
-      #   run : fab config ls
-
-
-
-      - name: Import pipeline manifest
-          fab cd Prod-Fabric-workspace
-          fab import pipeline_testing.Pipeline --input deploy/pipeline/pipeline_testing/manifest.json
-
-
-
-
-
-      - name: Run Fabric CLI command
         run: |
-          fab some-command --workspace $FABRIC_WORKSPACE_ID
+          fab config set encryption_fallback_enabled true
+          fab auth login -u $CLIENT_ID -p $CLIENT_SECRET --tenant $TENANT_ID
+
+      - name: Set CLI mode to interactive
+        run: fab config set mode interactive
+
+      - name: Try deploying pipeline via CLI
+        continue-on-error: true
+        run: |
+          echo "Attempting CLI import..."
+          # Optional: cd into workspace if supported
+          fab cd $FABRIC_WORKSPACE_ID || echo "cd failed, continuing"
+          
+          # Try full Fabric path
+          fab import ${FABRIC_WORKSPACE_NAME}/pipeline_testing.Pipeline --input deploy/pipeline/pipeline_testing/manifest.json || exit 0
+
+      - name: Fallback:Deploy pipeline using REST API
+        run: |
+          echo "Falling back to REST API deployment..."
+
+          # Get OAuth2 token using client credentials
+          TOKEN=$(curl -s -X POST \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "client_id=$CLIENT_ID&client_secret=$CLIENT_SECRET&grant_type=client_credentials&scope=https%3A%2F%2Fapi.fabric.microsoft.com%2F.default" \
+            "https://login.microsoftonline.com/$TENANT_ID/oauth2/v2.0/token" | jq -r .access_token)
+
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+            echo "Failed to obtain access token"
+            exit 1
+          fi
+
+          echo "Access token obtained. Importing pipeline..."
+
+          # Read manifest file and send POST to Fabric API
+          curl -X POST \
+            "https://api.fabric.microsoft.com/v1/workspaces/$FABRIC_WORKSPACE_ID/dataPipelines" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary @deploy/pipeline/pipeline_testing/manifest.json \
+            -w "\nHTTP Status: %{http_code}\n"
