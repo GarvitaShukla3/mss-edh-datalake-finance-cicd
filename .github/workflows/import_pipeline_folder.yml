@@ -22,7 +22,13 @@ jobs:
     - name: Install Fabric CLI using pip
       run: |
         python3 -m pip install --upgrade pip
-        pip install fabric-cli  # Replace 'fabric-cli' with actual package name if different
+        pip install fabric-cli
+
+    - name: Add ~/.local/bin to PATH
+      run: echo "${HOME}/.local/bin" >> $GITHUB_PATH
+
+    - name: Verify fabric CLI install
+      run: |
         fabric --version
 
     - name: Get Access Token
@@ -33,7 +39,7 @@ jobs:
         response=$(curl -s -X POST \
           -H "Content-Type: application/x-www-form-urlencoded" \
           -d "client_id=${{ secrets.CLIENT_ID }}" \
-          -d "scope=https://api.fabric.azure.com/.default" \
+          -d "scope=https://fabric.azure.com/.default" \
           -d "client_secret=${{ secrets.CLIENT_SECRET }}" \
           -d "grant_type=client_credentials" \
           "https://login.microsoftonline.com/${{ secrets.TENANT_ID }}/oauth2/v2.0/token")
@@ -51,7 +57,7 @@ jobs:
 
     - name: Authenticate Fabric CLI
       run: |
-        fabric auth login --access-token $ACCESS_TOKEN --workspace ${{ secrets.FABRIC_WORKSPACE_ID }}
+        fabric auth login --access-token $ACCESS_TOKEN --workspace ${{ secrets.WORKSPACE_ID }}
 
     - name: Deploy pipelines
       run: |
