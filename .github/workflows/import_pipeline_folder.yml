@@ -49,7 +49,7 @@ jobs:
 
               sleep 60
               echo "Importing pipeline: $pipeline_name"
-              fab import Prod-Fabric-workspace.Workspace/${pipeline_name}.DataPipeline --input "$pipeline_dir" -f
+              fab import /Prod-Fabric-workspace.Workspace/garvita_pl.DataPipeline --input deploy/pipeline/garvita_pl/garvita_pl.json -f
 
               echo "--------------------------------------------"
             fi
