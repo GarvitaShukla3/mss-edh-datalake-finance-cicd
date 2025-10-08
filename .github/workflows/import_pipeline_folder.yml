@@ -55,6 +55,7 @@ jobs:
 
       - name: Import pipelines from folders
         run: |
+          sleep 60
           for pipeline_dir in deploy/pipeline/*; do
             if [ -d "$pipeline_dir" ]; then
               pipeline_name=$(basename "$pipeline_dir")
