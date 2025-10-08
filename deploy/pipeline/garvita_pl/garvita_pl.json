@@ -1,0 +1,1 @@
+{"$schema":"http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#","contentVersion":"1.0.0.0","parameters":{},"variables":{},"resources":[{"name":"garvita_pl","type":"pipelines","apiVersion":"2018-06-01","properties":{"activities":[],"lastModifiedByObjectId":"9d49d8d9-38b8-45e4-a803-c96ff6726e05","lastPublishTime":"2025-10-08T12:32:07Z"},"dependsOn":[]}]}
