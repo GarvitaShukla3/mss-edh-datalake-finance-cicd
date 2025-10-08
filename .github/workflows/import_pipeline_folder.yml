@@ -84,6 +84,10 @@ jobs:
 
         python extract_pipelines.py deploy/pipeline/pipeline_testing/pipeline_testing.json extracted_pipelines
 
+    - name: Print extracted pipeline file
+      run: cat extracted_pipelines/pipeline_testing.json
+
+
     - name: Import pipeline(s) via Fabric CLI
       run: |
         for file in extracted_pipelines/*.json; do
