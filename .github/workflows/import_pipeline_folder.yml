@@ -110,6 +110,7 @@ jobs:
           set -o pipefail
           if ! fab import Prod-Fabric-workspace.Workspace/$pipeline_name.DataPipeline --input "$file" -f --debug 2>&1 | tee import_log.txt; then
           echo "Import failed for $pipeline_name. See import_log.txt for details."
+          cat import_log.txt
             exit 1
           fi
         done
