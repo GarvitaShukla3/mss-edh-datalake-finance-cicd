@@ -36,19 +36,24 @@ jobs:
           fab ls /Prod-Fabric-workspace.Workspace
 
 
-      - name: Import pipelines from folders
+      - name: Import pipelines from folders (fallback to JSON file)
         run: |
           for pipeline_dir in deploy/pipeline/*; do
             if [ -d "$pipeline_dir" ]; then
               pipeline_name=$(basename "$pipeline_dir")
-
               echo "Contents of $pipeline_dir:"
               ls -l "$pipeline_dir"
 
-              sleep 60
-              echo "Importing pipeline: $pipeline_name"
-              fab import Prod-Fabric-workspace.Workspace/${pipeline_name}.DataPipeline --input "$pipeline_dir" -f
+              manifest="$pipeline_dir/manifest.json"
+              jsondef="$pipeline_dir/${pipeline_name}.json"
+
+              echo "Attempting folder import first..."
+              if ! fab import Prod-Fabric-workspace.Workspace/${pipeline_name}.DataPipeline --input "$pipeline_dir" -f; then
+                echo "Folder import failed, falling back to JSON import..."
+                fab import Prod-Fabric-workspace.Workspace/${pipeline_name}.DataPipeline --input "$jsondef" -f
+              fi
 
               echo "--------------------------------------------"
             fi
           done
+
