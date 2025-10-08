@@ -31,61 +31,25 @@ jobs:
 
       - name: Login to Fabric CLI
         run: |
-          fab auth logout
           fab config set encryption_fallback_enabled true
           fab auth login -u $CLIENT_ID -p $CLIENT_SECRET --tenant $TENANT_ID
 
           fab ls /Prod-Fabric-workspace.Workspace
 
 
-      - name: Get access token
-        id: get_token
-        run: |
-          TOKEN=$(curl -X POST -H "Content-Type: application/x-www-form-urlencoded" \
-          -d "client_id=${{ secrets.CLIENT_ID }}&scope=https://api.fabric.microsoft.com/.default&client_secret=${{ secrets.CLIENT_SECRET }}&grant_type=client_credentials" \
-          https://login.microsoftonline.com/${{ secrets.TENANT_ID }}/oauth2/v2.0/token | jq -r '.access_token')
-          echo "token=$TOKEN" >> $GITHUB_OUTPUT
-
-
-      - name: Create pipeline via REST API
-        run: |
-          curl -X POST "https://fabric.microsoft.com/api/workspaces/${{ secrets.FABRIC_WORKSPACE_ID }}/pipelines" \
-            -H "Authorization: Bearer ${{ steps.get_token.outputs.token }}" \
-            -H "Content-Type: application/json" \
-            -d '{"name": "garvita_pl", "properties": {"activities": []}}'
-
       - name: Import pipelines from folders
         run: |
-          sleep 60
           for pipeline_dir in deploy/pipeline/*; do
             if [ -d "$pipeline_dir" ]; then
               pipeline_name=$(basename "$pipeline_dir")
+
+              echo "Contents of $pipeline_dir:"
+              ls -l "$pipeline_dir"
+
+              sleep 60
               echo "Importing pipeline: $pipeline_name"
               fab import Prod-Fabric-workspace.Workspace/${pipeline_name}.DataPipeline --input "$pipeline_dir" -f
+
+              echo "--------------------------------------------"
             fi
           done
-
-
-
-      # - name: Import pipelines from folders
-      #   run: |
-      #     for pipeline_dir in deploy/pipeline/*; do
-      #       if [ -d "$pipeline_dir" ]; then
-      #         pipeline_name=$(basename "$pipeline_dir")
-
-      #         echo "Contents of $pipeline_dir:"
-      #         ls -l "$pipeline_dir"
-
-      #         echo "======= garvita_pl.json ======="
-      #         cat "$pipeline_dir/garvita_pl.json"
-      #         echo "======= manifest.json ======="
-      #         cat "$pipeline_dir/manifest.json"
-
-
-      #         sleep 60
-      #         echo "Importing pipeline: $pipeline_name"
-      #         fab import Prod-Fabric-workspace.Workspace/${pipeline_name}.DataPipeline --input "$pipeline_dir" -f --create
-
-      #         echo "--------------------------------------------"
-      #       fi
-      #     done
