@@ -1,4 +1,4 @@
-name: Import Fabric Pipelines with Custom Name
+name: Import Fabric Pipelines
 
 on:
   workflow_dispatch:
@@ -33,33 +33,21 @@ jobs:
           fab config set encryption_fallback_enabled true
           fab auth login -u $CLIENT_ID -p $CLIENT_SECRET --tenant $TENANT_ID
 
-      - name: Import pipelines with renamed display names
+          fab ls /Prod-Fabric-workspace.Workspace
+
+
+      - name: Import pipelines from folders
         run: |
           for pipeline_dir in deploy/pipeline/*; do
             if [ -d "$pipeline_dir" ]; then
-              original_name=$(basename "$pipeline_dir")
-              new_name="${original_name}_v2"
+              pipeline_name=$(basename "$pipeline_dir")
 
-              echo "Preparing import for pipeline: $original_name as $new_name"
+              echo "Contents of $pipeline_dir:"
+              ls -l "$pipeline_dir"
 
-              # Create a temporary directory
-              temp_dir="temp_import/$new_name"
-              mkdir -p "$temp_dir"
-              cp -r "$pipeline_dir/"* "$temp_dir"
-
-              # Update displayName in manifest.json
-              if jq --arg dn "$new_name" '.displayName = $dn' "$pipeline_dir/manifest.json" > "$temp_dir/manifest.json"; then
-                echo "Updated displayName in manifest.json to: $new_name"
-              else
-                echo "Failed to update displayName. Skipping $original_name"
-                continue
-              fi
-
-              echo "Contents of $temp_dir:"
-              ls -l "$temp_dir"
-
-              echo "Importing renamed pipeline: $new_name"
-              fab import Prod-Fabric-workspace.Workspace/${new_name}.DataPipeline --input "$temp_dir" -f || true
+              sleep 60
+              echo "Importing pipeline: $pipeline_name"
+              fab import Prod-Fabric-workspace.Workspace/${pipeline_name}.DataPipeline --input "$pipeline_dir" -f
 
               echo "--------------------------------------------"
             fi
