@@ -89,5 +89,5 @@ jobs:
         for file in extracted_pipelines/*.json; do
           pipeline_name=$(basename "$file" .json)
           echo "Importing pipeline: $pipeline_name"
-          fab import $FABRIC_WORKSPACE_ID.Workspace/$pipeline_name.DataPipeline --input "$file" -f
+          fab import Prod-Fabric-workspace.Workspace/$pipeline_name.DataPipeline --input "$file" -f
         done
