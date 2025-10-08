@@ -1,4 +1,5 @@
-name: Import Fabric Pipelines (ARM → CLI)
+
+name: Import Fabric Pipelines
 
 on:
   workflow_dispatch:
@@ -32,53 +33,23 @@ jobs:
         run: |
           fab config set encryption_fallback_enabled true
           fab auth login -u $CLIENT_ID -p $CLIENT_SECRET --tenant $TENANT_ID
-          # optional: list workspace contents
-          fab ls /Prod-Fabric-workspace.Workspace || true
 
-      - name: Convert ARM JSON & import pipelines
+          fab ls /Prod-Fabric-workspace.Workspace
+
+
+      - name: Import pipelines from folders
         run: |
-          # Loop through pipeline folders
           for pipeline_dir in deploy/pipeline/*; do
             if [ -d "$pipeline_dir" ]; then
               pipeline_name=$(basename "$pipeline_dir")
-              echo "=== Pipeline folder: $pipeline_name ==="
-              
-              arm_json="$pipeline_dir/${pipeline_name}.json"
-              fabric_json="$pipeline_dir/${pipeline_name}_fabric.json"
-              manifest_file="$pipeline_dir/manifest.json"
-
-              # Convert ARM JSON to Fabric-compatible pipeline JSON
-              if [ -f "$arm_json" ]; then
-                echo "Converting $arm_json → $fabric_json"
-                jq '.resources[0]' "$arm_json" > "$fabric_json"
-              else
-                echo "⚠️ ARM JSON file not found: $arm_json"
-                continue
-              fi
-
-              # Generate manifest.json for CLI import
-              echo "Writing manifest.json"
-              cat > "$manifest_file" <<EOF
-              {
-                "name": "$pipeline_name",
-                "type": "Pipeline",
-                "displayName": "$pipeline_name",
-                "definition": {
-                 "path": "$(basename "$fabric_json")"
-              }
-            }
-          EOF
 
               echo "Contents of $pipeline_dir:"
               ls -l "$pipeline_dir"
 
-              # Perform the import via Fabric CLI
+              sleep 60
               echo "Importing pipeline: $pipeline_name"
-              fab import Prod-Fabric-workspace.Workspace/${pipeline_name}.DataPipeline --input "$pipeline_dir" -f || {
-                echo "❌ Import failed for $pipeline_name"
-                exit 1
-              }
-              echo "✅ Imported $pipeline_name"
-              echo "-----------------------------"
+              fab import Prod-Fabric-workspace.Workspace/${pipeline_name}.DataPipeline --input "$pipeline_dir" -f
+
+              echo "--------------------------------------------"
             fi
           done
