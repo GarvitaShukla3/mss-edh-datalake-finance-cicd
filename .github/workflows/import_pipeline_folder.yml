@@ -101,7 +101,7 @@ jobs:
         for file in extracted_pipelines/*.json; do
           pipeline_name=$(basename "$file" .json)
           echo "Importing pipeline: $pipeline_name"
-          if ! fab import Prod-Fabric-workspace.Workspace/$pipeline_name.pipelines --input "$file" -f --debug 2>&1 | tee extracted_pipelines/import_logs/import_log_${pipeline_name}.txt; then
+          if ! fab import Prod-Fabric-workspace.Workspace/$pipeline_name.pipelines --input "$file" -f -v 2>&1 | tee extracted_pipelines/import_logs/import_log_${pipeline_name}.txt; then
             echo "Import failed for $pipeline_name. See log below:"
             cat extracted_pipelines/import_logs/import_log_${pipeline_name}.txt
             failed=1
