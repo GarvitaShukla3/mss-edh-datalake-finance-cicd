@@ -1,4 +1,4 @@
-name: Deploy Fabric Pipeline
+name: Import Fabric Pipelines
 
 on:
   push:
@@ -6,114 +6,39 @@ on:
       - 'deploy/pipeline/**'
   workflow_dispatch:
 
+env:
+  CLIENT_ID: ${{ secrets.CLIENT_ID }}
+  CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+  TENANT_ID: ${{ secrets.TENANT_ID }}
+  FABRIC_WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
+
 jobs:
-  deploy-pipeline:
+  import-pipelines:
     runs-on: ubuntu-latest
 
-    env:
-      CLIENT_ID: ${{ secrets.CLIENT_ID }}
-      CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
-      TENANT_ID: ${{ secrets.TENANT_ID }}
-      FABRIC_WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
-
     steps:
-    - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    - name: Setup Python 3.11
-      uses: actions/setup-python@v4
-      with:
-        python-version: 3.11
+      - name: Setup Python 3.11 (required by Fabric CLI)
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
 
-    - name: Install Fabric CLI
-      run: pip install ms-fabric-cli
+      - name: Install Fabric CLI
+        run: pip install ms-fabric-cli
 
-    - name: Login to Fabric CLI
-      run: |
-        fab config set encryption_fallback_enabled true
-        fab auth login -u $CLIENT_ID -p $CLIENT_SECRET --tenant $TENANT_ID
+      - name: Login to Fabric CLI
+        run: |
+          fab config set encryption_fallback_enabled true
+          fab auth login -u $CLIENT_ID -p $CLIENT_SECRET --tenant $TENANT_ID
 
-    - name: Extract pipelines from ARM template
-      run: |
-        cat > extract_pipelines.py << 'EOF'
-        import json
-        import sys
-        import os
-
-        def extract_pipelines(arm_template_path, output_dir):
-            with open(arm_template_path, 'r') as f:
-                arm_template = json.load(f)
-
-            resources = arm_template.get('resources', [])
-            pipeline_count = 0
-
-            if not os.path.exists(output_dir):
-                os.makedirs(output_dir)
-
-            for resource in resources:
-                resource_type = resource.get('type', '').lower()
-                if resource_type == 'pipelines' or resource_type.endswith('pipelines'):
-                    pipeline_name = resource.get('name')
-                    pipeline_properties = resource.get('properties', {})
-
-                    if not pipeline_name or not pipeline_properties:
-                        print(f"Skipping invalid pipeline resource: {resource}")
-                        continue
-
-                    # Remove unsupported fields
-                    for field in ['lastModifiedByObjectId', 'lastPublishTime']:
-                        pipeline_properties.pop(field, None)
-
-                    # Construct clean manifest similar to Fabric JSON structure
-                    pipeline_manifest = {
-                        "name": pipeline_name,
-                        "objectId": "",
-                        "properties": pipeline_properties
-                    }
-
-                    output_path = os.path.join(output_dir, f"{pipeline_name}.json")
-                    with open(output_path, 'w') as out_f:
-                        json.dump(pipeline_manifest, out_f, indent=2)
-                    print(f"Extracted and cleaned pipeline '{pipeline_name}' to {output_path}")
-                    pipeline_count += 1
-
-            if pipeline_count == 0:
-                print("No pipelines found in ARM template.")
-
-        if __name__ == "__main__":
-            if len(sys.argv) != 3:
-                print("Usage: python extract_pipelines.py <arm_template.json> <output_directory>")
-                sys.exit(1)
-
-            arm_template_path = sys.argv[1]
-            output_dir = sys.argv[2]
-            extract_pipelines(arm_template_path, output_dir)
-        EOF
-
-        python extract_pipelines.py deploy/pipeline/pipeline_testing/pipeline_testing.json extracted_pipelines
-
-    - name: Print extracted pipeline file
-      run: cat extracted_pipelines/pipeline_testing.json
-
-    - name: Import pipeline(s) via Fabric CLI with debug logs
-      run: |
-        mkdir -p extracted_pipelines/import_logs
-        failed=0
-        for file in extracted_pipelines/*.json; do
-          pipeline_name=$(basename "$file" .json)
-          echo "Importing pipeline: $pipeline_name"
-          if ! fab import Prod-Fabric-workspace.Workspace/$pipeline_name.pipelines --input "$file" -f --debug 2>&1 | tee extracted_pipelines/import_logs/import_log_${pipeline_name}.txt; then
-            echo "Import failed for $pipeline_name. See log below:"
-            cat extracted_pipelines/import_logs/import_log_${pipeline_name}.txt
-            failed=1
-          fi
-        done
-        if [ $failed -eq 1 ]; then
-          exit 1
-        fi
-
-    - name: Upload import logs
-      if: failure() || always()
-      uses: actions/upload-artifact@v3
-      with:
-        name: fabric-import-logs
-        path: extracted_pipelines/import_logs/*.txt
+      - name: Import pipelines using Fabric CLI
+        run: |
+          for pipeline_dir in deploy/pipeline/*; do
+            if [ -d "$pipeline_dir" ]; then
+              pipeline_name=$(basename "$pipeline_dir")
+              echo "Importing pipeline: $pipeline_name"
+              fab import Prod-Fabric-workspace.Workspace/$pipeline_name.DataPipeline --input "$pipeline_dir" -f
+            fi
+          done
