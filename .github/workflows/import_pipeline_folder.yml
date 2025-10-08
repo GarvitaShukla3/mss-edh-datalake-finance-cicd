@@ -33,6 +33,9 @@ jobs:
           fab config set encryption_fallback_enabled true
           fab auth login -u $CLIENT_ID -p $CLIENT_SECRET --tenant $TENANT_ID
 
+          fab ls /Prod-Fabric-workspace.Workspace
+
+
       - name: Import pipelines from folders
         run: |
           for pipeline_dir in deploy/pipeline/*; do
