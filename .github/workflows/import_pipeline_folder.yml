@@ -66,7 +66,6 @@ jobs:
                     # Construct clean manifest similar to Fabric JSON structure
                     pipeline_manifest = {
                         "name": pipeline_name,
-                        "objectId": "",
                         "properties": pipeline_properties
                     }
 
@@ -112,4 +111,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: fabric-import-logs
-        path: extracted_pipelines/import_logs/*.txt
+        path: extracted_pipelines/import_logs/*.log
