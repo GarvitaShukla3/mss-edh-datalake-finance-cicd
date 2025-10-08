@@ -113,7 +113,7 @@ jobs:
 
     - name: Upload import logs
       if: failure() || always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: fabric-import-logs
         path: extracted_pipelines/import_logs/*.txt
