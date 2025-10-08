@@ -44,11 +44,12 @@ jobs:
           TOKEN=$(curl -X POST -H "Content-Type: application/x-www-form-urlencoded" \
           -d "client_id=${{ secrets.CLIENT_ID }}&scope=https://fabric.microsoft.com/.default&client_secret=${{ secrets.CLIENT_SECRET }}&grant_type=client_credentials" \
           https://login.microsoftonline.com/${{ secrets.TENANT_ID }}/oauth2/v2.0/token | jq -r '.access_token')
-          echo "::set-output name=token::$TOKEN"
+          echo "token=$TOKEN" >> $GITHUB_OUTPUT
+
 
       - name: Create pipeline via REST API
         run: |
-          curl -X POST "https://fabric.microsoft.com/api/workspaces/${{ secrets.FABRIC_WORKSPACE_ID }}/pipelines" \
+          curl -X POST "https://api.fabric.microsoft.com/api/workspaces/${{ secrets.FABRIC_WORKSPACE_ID }}/pipelines" \
             -H "Authorization: Bearer ${{ steps.get_token.outputs.token }}" \
             -H "Content-Type: application/json" \
             -d '{"name": "garvita_pl", "properties": {"activities": []}}'
