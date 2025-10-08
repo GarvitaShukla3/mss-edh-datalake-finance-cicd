@@ -109,9 +109,27 @@ jobs:
         done
 
 
-    - name: Upload import logs
-      if: failure() || always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: fabric-import-logs
-        path: extracted_pipelines/import_logs/*.log
+    - name: Fallback:Deploy pipeline using REST API
+      run: |
+          echo "Falling back to REST API deployment..."
+
+          # Get OAuth2 token using client credentials
+          TOKEN=$(curl -s -X POST \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "client_id=$CLIENT_ID&client_secret=$CLIENT_SECRET&grant_type=client_credentials&scope=https%3A%2F%2Fapi.fabric.microsoft.com%2F.default" \
+            "https://login.microsoftonline.com/$TENANT_ID/oauth2/v2.0/token" | jq -r .access_token)
+
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+            echo "Failed to obtain access token"
+            exit 1
+          fi
+
+          echo "Access token obtained. Importing pipeline..."
+
+          # Read manifest file and send POST to Fabric API
+          curl -X POST \
+            "https://api.fabric.microsoft.com/v1/workspaces/$FABRIC_WORKSPACE_ID/dataPipelines" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary @deploy/pipeline/pipeline_testing/manifest.json \
+            -w "\nHTTP Status: %{http_code}\n"
