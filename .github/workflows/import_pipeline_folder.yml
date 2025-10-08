@@ -93,16 +93,19 @@ jobs:
     - name: Print extracted pipeline file
       run: cat extracted_pipelines/pipeline_testing.json
 
-    - name: Import pipeline(s) via Fabric CLI
+    - name: Import pipeline(s) via Fabric CLI with detailed logs
       run: |
         mkdir -p extracted_pipelines/import_logs
         for file in extracted_pipelines/*.json; do
           pipeline_name=$(basename "$file" .json)
           echo "Importing pipeline: $pipeline_name"
-          # Redirect stdout and stderr to log files
-          fab import Prod-Fabric-workspace.Workspace/$pipeline_name.DataPipeline --input "$file" -f > extracted_pipelines/import_logs/${pipeline_name}_import.log 2>&1 || true
+          log_file="extracted_pipelines/import_logs/${pipeline_name}_import.log"
+      
+          # Run import and capture both stdout and stderr
+          fab import Prod-Fabric-workspace.Workspace/$pipeline_name.DataPipeline --input "$file" -f > "$log_file" 2>&1 || true
+      
           echo "Log for $pipeline_name:"
-          cat extracted_pipelines/import_logs/${pipeline_name}_import.log
+          cat "$log_file"
         done
 
 
