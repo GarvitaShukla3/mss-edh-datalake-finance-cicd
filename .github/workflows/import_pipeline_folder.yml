@@ -51,22 +51,29 @@ jobs:
 
             for resource in resources:
                 resource_type = resource.get('type', '').lower()
-                if resource_type == 'pipelines' or resource_type == 'pipeline' or resource_type.endswith('pipelines'):
+                if resource_type == 'pipelines' or resource_type.endswith('pipelines'):
                     pipeline_name = resource.get('name')
-                    pipeline_properties = resource.get('properties')
+                    pipeline_properties = resource.get('properties', {})
 
                     if not pipeline_name or not pipeline_properties:
                         print(f"Skipping invalid pipeline resource: {resource}")
                         continue
 
-                    pipeline_manifest = pipeline_properties
-                    pipeline_manifest['name'] = pipeline_name
-                    pipeline_manifest['type'] = 'DataPipeline'
+                    # Remove unsupported fields
+                    for field in ['lastModifiedByObjectId', 'lastPublishTime']:
+                        pipeline_properties.pop(field, None)
+
+                    # Construct clean manifest
+                    pipeline_manifest = {
+                        "name": pipeline_name,
+                        "type": "DataPipeline",
+                        **pipeline_properties
+                    }
 
                     output_path = os.path.join(output_dir, f"{pipeline_name}.json")
                     with open(output_path, 'w') as out_f:
                         json.dump(pipeline_manifest, out_f, indent=2)
-                    print(f"Extracted pipeline '{pipeline_name}' to {output_path}")
+                    print(f"Extracted and cleaned pipeline '{pipeline_name}' to {output_path}")
                     pipeline_count += 1
 
             if pipeline_count == 0:
@@ -86,7 +93,6 @@ jobs:
 
     - name: Print extracted pipeline file
       run: cat extracted_pipelines/pipeline_testing.json
-
 
     - name: Import pipeline(s) via Fabric CLI
       run: |
