@@ -35,6 +35,18 @@ jobs:
 
           fab ls /Prod-Fabric-workspace.Workspace
 
+      - name: Convert ARM JSON to Fabric format
+        run: |
+          for dir in deploy/pipeline/*; do
+            name=$(basename "$dir")
+            arm_json="$dir/$name.json"
+            if [ -f "$arm_json" ]; then
+              echo "🔁 Converting $arm_json to Fabric-compatible JSON..."
+              jq '.resources[0]' "$arm_json" > "$dir/${name}_fabric.json"
+            fi
+          done
+
+
 
       - name: Import pipelines from folders (fallback to JSON file)
         run: |
@@ -50,7 +62,7 @@ jobs:
               echo "Attempting folder import first..."
               if ! fab import Prod-Fabric-workspace.Workspace/${pipeline_name}.DataPipeline --input "$pipeline_dir" -f; then
                 echo "Folder import failed, falling back to JSON import..."
-                fab import Prod-Fabric-workspace.Workspace/${pipeline_name}.DataPipeline --input "$jsondef" -f
+                fab import Prod-Fabric-workspace.Workspace/${pipeline_name}.DataPipeline --input "${name}_fabric.json" -f
               fi
 
               echo "--------------------------------------------"
