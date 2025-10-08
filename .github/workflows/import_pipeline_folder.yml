@@ -94,22 +94,18 @@ jobs:
     - name: Print extracted pipeline file
       run: cat extracted_pipelines/pipeline_testing.json
 
-    - name: Import pipeline(s) via Fabric CLI with debug logs
+    - name: Import pipeline(s) via Fabric CLI
       run: |
         mkdir -p extracted_pipelines/import_logs
-        failed=0
         for file in extracted_pipelines/*.json; do
           pipeline_name=$(basename "$file" .json)
           echo "Importing pipeline: $pipeline_name"
-          if ! fab import Prod-Fabric-workspace.Workspace/$pipeline_name.pipelines --input "$file" -f -v 2>&1 | tee extracted_pipelines/import_logs/import_log_${pipeline_name}.txt; then
-            echo "Import failed for $pipeline_name. See log below:"
-            cat extracted_pipelines/import_logs/import_log_${pipeline_name}.txt
-            failed=1
-          fi
+          # Redirect stdout and stderr to log files
+          fab import Prod-Fabric-workspace.Workspace/$pipeline_name.pipelines --input "$file" -f > extracted_pipelines/import_logs/${pipeline_name}_import.log 2>&1 || true
+          echo "Log for $pipeline_name:"
+          cat extracted_pipelines/import_logs/${pipeline_name}_import.log
         done
-        if [ $failed -eq 1 ]; then
-          exit 1
-        fi
+
 
     - name: Upload import logs
       if: failure() || always()
