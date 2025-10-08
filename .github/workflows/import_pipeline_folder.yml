@@ -102,10 +102,15 @@ jobs:
     - name: Print extracted pipeline file
       run: cat extracted_pipelines/pipeline_testing.json
 
-    - name: Import pipeline(s) via Fabric CLI
+    - name: Import pipeline(s) via Fabric CLI with debug
       run: |
         for file in extracted_pipelines/*.json; do
           pipeline_name=$(basename "$file" .json)
           echo "Importing pipeline: $pipeline_name"
-          fab import Prod-Fabric-workspace.Workspace/$pipeline_name.DataPipeline --input "$file" -f
+          set -o pipefail
+          if ! fab import Prod-Fabric-workspace.Workspace/$pipeline_name.DataPipeline --input "$file" -f --debug 2>&1 | tee import_log.txt; then
+          echo "Import failed for $pipeline_name. See import_log.txt for details."
+            exit 1
+          fi
         done
+
