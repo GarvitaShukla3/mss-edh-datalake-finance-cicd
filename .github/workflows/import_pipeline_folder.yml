@@ -84,7 +84,7 @@ jobs:
                     # Final manifest
                     pipeline_manifest = {
                         "name": pipeline_name,
-                        "type": "DataPipeline",
+                        "type": "pipelines",
                         **cleaned_properties
                     }
 
