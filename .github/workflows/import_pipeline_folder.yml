@@ -17,7 +17,8 @@ jobs:
       FABRIC_WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
 
     steps:
-    - uses: actions/checkout@v3
+    - name: Checkout repository
+      uses: actions/checkout@v3
 
     - name: Setup Python 3.11
       uses: actions/setup-python@v4
@@ -38,6 +39,20 @@ jobs:
         import json
         import sys
         import os
+        import re
+
+        def clean_fabric_placeholders(obj):
+            """Recursively remove [parameters(...)] placeholders from dicts/lists."""
+            if isinstance(obj, dict):
+                return {
+                    k: clean_fabric_placeholders(v)
+                    for k, v in obj.items()
+                    if not (isinstance(v, str) and re.match(r"^\[parameters\('.*?'\)\]$", v))
+                }
+            elif isinstance(obj, list):
+                return [clean_fabric_placeholders(v) for v in obj]
+            else:
+                return obj
 
         def extract_pipelines(arm_template_path, output_dir):
             with open(arm_template_path, 'r') as f:
@@ -59,15 +74,18 @@ jobs:
                         print(f"Skipping invalid pipeline resource: {resource}")
                         continue
 
-                    # Remove unsupported fields
+                    # Remove unsupported metadata
                     for field in ['lastModifiedByObjectId', 'lastPublishTime']:
                         pipeline_properties.pop(field, None)
 
-                    # Construct clean manifest
+                    # Clean invalid ARM expressions
+                    cleaned_properties = clean_fabric_placeholders(pipeline_properties)
+
+                    # Final manifest
                     pipeline_manifest = {
                         "name": pipeline_name,
                         "type": "DataPipeline",
-                        **pipeline_properties
+                        **cleaned_properties
                     }
 
                     output_path = os.path.join(output_dir, f"{pipeline_name}.json")
@@ -91,8 +109,11 @@ jobs:
 
         python extract_pipelines.py deploy/pipeline/pipeline_testing/pipeline_testing.json extracted_pipelines
 
-    - name: Print extracted pipeline file
-      run: cat extracted_pipelines/pipeline_testing.json
+    - name: Print extracted pipeline files
+      run: |
+        echo "Extracted files:"
+        ls -l extracted_pipelines
+        cat extracted_pipelines/*.json
 
     - name: Import pipeline(s) via Fabric CLI
       run: |
