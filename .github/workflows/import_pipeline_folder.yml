@@ -35,11 +35,6 @@ jobs:
           # optional: list workspace contents
           fab ls /Prod-Fabric-workspace.Workspace || true
 
-      - name: check pl
-        run: |
-          fab ls /Prod-Fabric-workspace.Workspace | grep abc_pipeline_testing.DataPipeline
-
-
       - name: Convert ARM JSON & import pipelines
         run: |
           # Loop through pipeline folders
