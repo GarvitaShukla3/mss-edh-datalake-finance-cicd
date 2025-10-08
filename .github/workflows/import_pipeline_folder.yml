@@ -47,6 +47,12 @@ jobs:
               echo "Contents of $pipeline_dir:"
               ls -l "$pipeline_dir"
 
+              echo "======= garvita_pl.json ======="
+              cat "$pipeline_dir/garvita_pl.json"
+              echo "======= manifest.json ======="
+              cat "$pipeline_dir/manifest.json"
+
+
               sleep 60
               echo "Importing pipeline: $pipeline_name"
               fab import Prod-Fabric-workspace.Workspace/${pipeline_name}.DataPipeline --input "$pipeline_dir" -f
