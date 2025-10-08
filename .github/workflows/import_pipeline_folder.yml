@@ -1,4 +1,4 @@
-name: Import Fabric Pipelines
+name: Import Fabric Pipelines (ARM → CLI)
 
 on:
   workflow_dispatch:
@@ -32,40 +32,53 @@ jobs:
         run: |
           fab config set encryption_fallback_enabled true
           fab auth login -u $CLIENT_ID -p $CLIENT_SECRET --tenant $TENANT_ID
+          # optional: list workspace contents
+          fab ls /Prod-Fabric-workspace.Workspace || true
 
-          fab ls /Prod-Fabric-workspace.Workspace
-
-      - name: Convert ARM JSON to Fabric format
+      - name: Convert ARM JSON & import pipelines
         run: |
-          for dir in deploy/pipeline/*; do
-            name=$(basename "$dir")
-            arm_json="$dir/$name.json"
-            if [ -f "$arm_json" ]; then
-              echo "🔁 Converting $arm_json to Fabric-compatible JSON..."
-              jq '.resources[0]' "$arm_json" > "$dir/${name}_fabric.json"
-            fi
-          done
-
-
-
-      - name: Import pipelines from folders (fallback to JSON file)
-        run: |
+          # Loop through pipeline folders
           for pipeline_dir in deploy/pipeline/*; do
             if [ -d "$pipeline_dir" ]; then
               pipeline_name=$(basename "$pipeline_dir")
+              echo "=== Pipeline folder: $pipeline_name ==="
+              
+              arm_json="$pipeline_dir/${pipeline_name}.json"
+              fabric_json="$pipeline_dir/${pipeline_name}_fabric.json"
+              manifest_file="$pipeline_dir/manifest.json"
+
+              # Convert ARM JSON to Fabric-compatible pipeline JSON
+              if [ -f "$arm_json" ]; then
+                echo "Converting $arm_json → $fabric_json"
+                jq '.resources[0]' "$arm_json" > "$fabric_json"
+              else
+                echo "⚠️ ARM JSON file not found: $arm_json"
+                continue
+              fi
+
+              # Generate manifest.json for CLI import
+              echo "Writing manifest.json"
+              cat > "$manifest_file" <<EOF
+              {
+                "name": "$pipeline_name",
+                "type": "Pipeline",
+                "displayName": "$pipeline_name",
+                "definition": {
+                 "path": "$(basename "$fabric_json")"
+              }
+            }
+          EOF
+
               echo "Contents of $pipeline_dir:"
               ls -l "$pipeline_dir"
 
-              manifest="$pipeline_dir/manifest.json"
-              jsondef="$pipeline_dir/${pipeline_name}.json"
-
-              echo "Attempting folder import first..."
-              if ! fab import Prod-Fabric-workspace.Workspace/${pipeline_name}.DataPipeline --input "$pipeline_dir" -f; then
-                echo "Folder import failed, falling back to JSON import..."
-                fab import Prod-Fabric-workspace.Workspace/${pipeline_name}.DataPipeline --input "${name}_fabric.json" -f
-              fi
-
-              echo "--------------------------------------------"
+              # Perform the import via Fabric CLI
+              echo "Importing pipeline: $pipeline_name"
+              fab import Prod-Fabric-workspace.Workspace/${pipeline_name}.DataPipeline --input "$pipeline_dir" -f || {
+                echo "❌ Import failed for $pipeline_name"
+                exit 1
+              }
+              echo "✅ Imported $pipeline_name"
+              echo "-----------------------------"
             fi
           done
-
