@@ -32,7 +32,7 @@ jobs:
         fab config set encryption_fallback_enabled true
         fab auth login -u $CLIENT_ID -p $CLIENT_SECRET --tenant $TENANT_ID
 
-    - name: Extract pipelines from ARM template and convert to Fabric format
+    - name: Extract pipelines from ARM template
       run: |
         cat > extract_pipelines.py << 'EOF'
         import json
@@ -59,29 +59,21 @@ jobs:
                         print(f"Skipping invalid pipeline resource: {resource}")
                         continue
 
-                    # Extract and remove metadata from properties
-                    last_modified = pipeline_properties.pop('lastModifiedByObjectId', None)
-                    last_published = pipeline_properties.pop('lastPublishTime', None)
+                    # Remove unsupported fields
+                    for field in ['lastModifiedByObjectId', 'lastPublishTime']:
+                        pipeline_properties.pop(field, None)
 
-                    # Construct Fabric JSON format
-                    fabric_pipeline = {
+                    # Construct clean manifest similar to Fabric JSON structure
+                    pipeline_manifest = {
                         "name": pipeline_name,
-                        "objectId": "",  # You can fill this if you have the ID, else keep empty
-                        "properties": {
-                            **pipeline_properties,
-                        }
+                        "objectId": "",
+                        "properties": pipeline_properties
                     }
-
-                    # Add metadata inside properties if exists
-                    if last_modified:
-                        fabric_pipeline['properties']['lastModifiedByObjectId'] = last_modified
-                    if last_published:
-                        fabric_pipeline['properties']['lastPublishTime'] = last_published
 
                     output_path = os.path.join(output_dir, f"{pipeline_name}.json")
                     with open(output_path, 'w') as out_f:
-                        json.dump(fabric_pipeline, out_f, indent=2)
-                    print(f"Extracted Fabric-style pipeline '{pipeline_name}' to {output_path}")
+                        json.dump(pipeline_manifest, out_f, indent=2)
+                    print(f"Extracted and cleaned pipeline '{pipeline_name}' to {output_path}")
                     pipeline_count += 1
 
             if pipeline_count == 0:
@@ -102,16 +94,26 @@ jobs:
     - name: Print extracted pipeline file
       run: cat extracted_pipelines/pipeline_testing.json
 
-    - name: Import pipeline(s) via Fabric CLI with debug
+    - name: Import pipeline(s) via Fabric CLI with debug logs
       run: |
+        mkdir -p extracted_pipelines/import_logs
+        failed=0
         for file in extracted_pipelines/*.json; do
           pipeline_name=$(basename "$file" .json)
           echo "Importing pipeline: $pipeline_name"
-          set -o pipefail
-          if ! fab import Prod-Fabric-workspace.Workspace/$pipeline_name.DataPipeline --input "$file" -f -v 2>&1 | tee import_log.txt; then
-          echo "Import failed for $pipeline_name. See import_log.txt for details."
-          cat import_log.txt
-            exit 1
+          if ! fab import Prod-Fabric-workspace.Workspace/$pipeline_name.pipelines --input "$file" -f --debug 2>&1 | tee extracted_pipelines/import_logs/import_log_${pipeline_name}.txt; then
+            echo "Import failed for $pipeline_name. See log below:"
+            cat extracted_pipelines/import_logs/import_log_${pipeline_name}.txt
+            failed=1
           fi
         done
+        if [ $failed -eq 1 ]; then
+          exit 1
+        fi
 
+    - name: Upload import logs
+      if: failure() || always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: fabric-import-logs
+        path: extracted_pipelines/import_logs/*.txt
