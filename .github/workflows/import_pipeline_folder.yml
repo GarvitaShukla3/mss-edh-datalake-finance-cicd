@@ -6,18 +6,18 @@ on:
     paths:
       - 'deploy/pipeline/**'
 
+env:
+  TENANT_ID: ${{ secrets.TENANT_ID }}
+  CLIENT_ID: ${{ secrets.CLIENT_ID }}
+  CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+  FABRIC_WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
+
 jobs:
   import-pipelines:
     runs-on: ubuntu-latest
 
-    env:
-      CLIENT_ID: ${{ secrets.CLIENT_ID }}
-      CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
-      TENANT_ID: ${{ secrets.TENANT_ID }}
-      FABRIC_WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
-
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Setup Python 3.11
@@ -38,7 +38,13 @@ jobs:
           for pipeline_dir in deploy/pipeline/*; do
             if [ -d "$pipeline_dir" ]; then
               pipeline_name=$(basename "$pipeline_dir")
+
+              echo "Contents of $pipeline_dir:"
+              ls -l "$pipeline_dir"
+
               echo "Importing pipeline: $pipeline_name"
-              fab import Prod-Fabric-workspace.Workspace/$pipeline_name.DataPipeline --input "$pipeline_dir" -f
+              fab import Prod-Fabric-workspace.Workspace/${pipeline_name}.DataPipeline --input "$pipeline_dir" -f
+
+              echo "--------------------------------------------"
             fi
           done
