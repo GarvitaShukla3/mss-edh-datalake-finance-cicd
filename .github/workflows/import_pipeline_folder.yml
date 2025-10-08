@@ -101,7 +101,7 @@ jobs:
           pipeline_name=$(basename "$file" .json)
           echo "Importing pipeline: $pipeline_name"
           # Redirect stdout and stderr to log files
-          fab import Prod-Fabric-workspace.Workspace/$pipeline_name.pipelines --input "$file" -f > extracted_pipelines/import_logs/${pipeline_name}_import.log 2>&1 || true
+          fab import Prod-Fabric-workspace.Workspace/$pipeline_name.DataPipeline --input "$file" -f > extracted_pipelines/import_logs/${pipeline_name}_import.log 2>&1 || true
           echo "Log for $pipeline_name:"
           cat extracted_pipelines/import_logs/${pipeline_name}_import.log
         done
