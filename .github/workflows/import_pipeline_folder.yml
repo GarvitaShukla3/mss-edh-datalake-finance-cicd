@@ -35,10 +35,13 @@ jobs:
 
       - name: Import pipelines using Fabric CLI
         run: |
-          for pipeline_dir in deploy/pipeline/*; do
-            if [ -d "$pipeline_dir" ]; then
-              pipeline_name=$(basename "$pipeline_dir")
-              echo "Importing pipeline: $pipeline_name"
-              fab import Prod-Fabric-workspace.Workspace/$pipeline_name.DataPipeline --input "$pipeline_dir" -f
-            fi
-          done
+         for pipeline_dir in deploy/pipeline/*; do
+          if [ -d "$pipeline_dir" ]; then
+            pipeline_name=$(basename "$pipeline_dir")
+            echo "Contents of $pipeline_dir:"
+            ls -l "$pipeline_dir"
+        
+            echo "Importing pipeline: $pipeline_name"
+            fab import Prod-Fabric-workspace.Workspace/$pipeline_name.DataPipeline --input "$pipeline_dir" -f || true
+          fi
+         done
