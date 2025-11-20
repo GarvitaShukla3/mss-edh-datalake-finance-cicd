@@ -3,6 +3,7 @@
 name: Update to Microsoft Fabric Workspace
 
 on:
+  workflow_dispatch:
   push:
     # branches:
     #   - main
