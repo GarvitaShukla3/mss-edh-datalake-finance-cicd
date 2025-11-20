@@ -5,10 +5,10 @@ name: Update to Microsoft Fabric Workspace
 on:
   workflow_dispatch:
   push:
-    # branches:
-    #   - main
-    # paths:
-    #   - deploy/notebook/**/*.ipynb
+    branches:
+      - main
+    paths:
+      - deploy/notebook/**/*.ipynb
 
 env:
   TENANT_ID: ${{ secrets.TENANT_ID }}
