@@ -1,0 +1,65 @@
+name: Update to Microsoft Fabric Workspace (FAB CLI)
+
+on:
+  workflow_dispatch:    # Allows manual triggering
+  push:
+    # Optional: keep push triggers if needed
+    # branches:
+    #   - main
+    paths:
+      - deploy/notebook/**/*.ipynb
+
+env:
+  TENANT_ID: ${{ secrets.TENANT_ID }}
+  CLIENT_ID: ${{ secrets.CLIENT_ID }}
+  CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+  WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y curl jq
+
+      - name: Install Microsoft Fabric CLI
+        run: |
+          curl -sSL https://aka.ms/fabric-cli-install | bash
+          fab --version
+
+      - name: Authenticate FAB CLI
+        run: |
+          fab login --client-id $CLIENT_ID --client-secret $CLIENT_SECRET --tenant-id $TENANT_ID
+        env:
+          CLIENT_ID: ${{ env.CLIENT_ID }}
+          CLIENT_SECRET: ${{ env.CLIENT_SECRET }}
+          TENANT_ID: ${{ env.TENANT_ID }}
+
+      - name: Sync notebooks using FAB CLI
+        run: |
+          FILES=$(git ls-files | grep '^deploy/notebook/.*\.ipynb$')
+          if [ -z "$FILES" ]; then
+            echo "No notebook files to sync."
+            exit 0
+          fi
+
+          for FILE in $FILES; do
+            echo "Processing: $FILE"
+            DISPLAY_NAME=$(basename "$FILE" .ipynb)
+            
+            # Import or update notebook using FAB CLI
+            fab -c "import -f $FILE -w $WORKSPACE_ID"
+
+            if [ $? -eq 0 ]; then
+              echo "✅ Successfully imported/updated: $FILE"
+            else
+              echo "❌ Failed to process: $FILE"
+              exit 1
+            fi
+          done
+        env:
+          WORKSPACE_ID: ${{ env.WORKSPACE_ID }}
